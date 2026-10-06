@@ -1,7 +1,8 @@
 # Piattaforma «Lezioni di disegno» — servizio systemd (stessa impostazione di drAwQ).
 #
-# Ascolta solo su 127.0.0.1: dall'esterno ci si arriva dal tunnel Cloudflare
-# già presente sul Raspberry. Scrive solo nelle cartelle di ReadWritePaths.
+# Ascolta sull'IP del Raspberry in rete interna (AQF_HOST=0.0.0.0, porta 8790):
+# il tunnel Cloudflare esistente lo raggiunge lì. Scrive solo nelle cartelle di
+# ReadWritePaths.
 [Unit]
 Description=Lezioni di disegno — presentazione e annotazione di PDF e PowerPoint
 After=network-online.target local-fs.target

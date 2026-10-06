@@ -35,7 +35,7 @@ Installazione: **[`deploy/README.md`](deploy/README.md)**.
 npm ci
 npm run build
 AQF_DATA_DIR=./dati node server/dist/cli.js crea --email io@esempio.it --nome "Io" --admin
-AQF_DATA_DIR=./dati npm start        # http://127.0.0.1:8790
+AQF_DATA_DIR=./dati npm start        # http://IP-della-macchina:8790
 # oppure, con ricaricamento: npm run dev  (web su :5180)
 ```
 

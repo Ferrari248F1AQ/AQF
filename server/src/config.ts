@@ -9,7 +9,8 @@ import { resolve } from 'node:path';
 const dataDir = resolve(process.env.AQF_DATA_DIR ?? './dati');
 
 export const config = {
-  host: process.env.AQF_HOST ?? '127.0.0.1',
+  /** 0.0.0.0: raggiungibile dall'IP del Raspberry in rete interna (e quindi da cloudflared). */
+  host: process.env.AQF_HOST ?? '0.0.0.0',
   port: Number(process.env.AQF_PORT ?? 8790),
   dataDir,
   dbPath: resolve(dataDir, 'aqf.sqlite'),

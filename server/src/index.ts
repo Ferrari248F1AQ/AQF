@@ -16,8 +16,9 @@ import { assicuraVolumeIniziale } from './storage.js';
 
 const app = Fastify({
   logger: { level: process.env.AQF_LOG ?? 'info' },
-  // cloudflared è sullo stesso Raspberry: l'IP vero del visitatore arriva nelle intestazioni.
-  trustProxy: '127.0.0.1',
+  // cloudflared arriva dalla rete interna (o dal Raspberry stesso): l'IP vero del
+  // visitatore sta nelle intestazioni che aggiunge. Ci si fida solo di indirizzi privati.
+  trustProxy: ['loopback', 'linklocal', 'uniquelocal'],
   bodyLimit: 2 * 1024 * 1024,
 });
 

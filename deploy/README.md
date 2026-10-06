@@ -29,7 +29,14 @@ sudo ./deploy/installa.sh
 
 Per aggiornare: `git pull && npm ci && npm run build && sudo ./deploy/installa.sh`.
 
-Il servizio ascolta su `127.0.0.1:8790` (drAwQ usa 8787: non si pestano i piedi).
+Il servizio ascolta su tutte le interfacce, porta **8790** (drAwQ usa 8787):
+dalla rete interna è `http://IP-del-Raspberry:8790` (l'IP lo stampa
+`installa.sh`, oppure `hostname -I`). Conviene dare al Raspberry un IP fisso
+(prenotazione DHCP sul router), perché il tunnel punta a quello.
+
+Se sul Raspberry c'è un firewall: `sudo ufw allow from 192.168.0.0/16 to any port 8790 proto tcp`
+(adatta la sottorete). Per tornare all'ascolto solo locale metti
+`AQF_HOST=127.0.0.1` in `/etc/aqf/aqf.env` e `sudo systemctl restart aqf`.
 
 ## 3. Il tuo account
 
@@ -49,9 +56,14 @@ sudo -u aqf AQF_DATA_DIR=/var/lib/aqf node /opt/aqf/server/dist/cli.js password 
 
 ## 4. Tunnel Cloudflare
 
-Aggiungi la regola di `cloudflared-aqf.yml` al file del tunnel esistente,
-crea il record DNS e riavvia `cloudflared`. Il microfono funziona solo in
-HTTPS, quindi le registrazioni vanno fatte dall'indirizzo del tunnel.
+Il tunnel esistente raggiunge già il Raspberry: aggiungi un hostname pubblico
+(es. `lezioni.tuodominio.it`) che punta a `http://IP-del-Raspberry:8790` —
+dalla dashboard Cloudflare (Zero Trust → Networks → Tunnels → Public
+Hostname) oppure con la regola di `cloudflared-aqf.yml` se il tunnel usa un
+file di configurazione.
+
+Il microfono funziona solo in HTTPS: le registrazioni vanno fatte
+dall'indirizzo del tunnel. Dall'IP in rete interna tutto il resto funziona.
 
 ## 5. Scegliere il disco dei dati
 

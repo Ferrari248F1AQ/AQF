@@ -39,7 +39,9 @@ systemctl enable aqf.service >/dev/null
 systemctl restart aqf.service
 sleep 2
 if curl -fsS http://127.0.0.1:8790/api/salute >/dev/null; then
-  echo "Servizio attivo su http://127.0.0.1:8790"
+  IP=$(hostname -I 2>/dev/null | awk '{print $1}')
+  echo "Servizio attivo su http://${IP:-IP-del-Raspberry}:8790 (rete interna)"
+  echo "Nel tunnel Cloudflare usa come servizio: http://${IP:-IP-del-Raspberry}:8790"
 else
   echo "Il servizio non risponde: journalctl -u aqf -n 50" >&2
   exit 1
