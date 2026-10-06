@@ -8,6 +8,7 @@ import { config } from './config.js';
 import { riprendiConversioni } from './conversione.js';
 import { chiudiDb, db } from './db.js';
 import { rotteAccesso } from './routes/accesso.js';
+import { rotteDiretta } from './routes/diretta.js';
 import { rotteLibreria } from './routes/libreria.js';
 import { chiudiRegistrazioniAbbandonate, rotteRegistrazioni } from './routes/registrazioni.js';
 import { rotteSistema } from './routes/sistema.js';
@@ -71,6 +72,7 @@ await app.register(rotteUtenti);
 await app.register(rotteLibreria);
 await app.register(rotteRegistrazioni);
 await app.register(rotteSistema);
+await app.register(rotteDiretta);
 
 // L'applicazione web è a pagina singola: ogni indirizzo che non è un file o
 // un'API restituisce index.html, e ci pensa il router del browser.

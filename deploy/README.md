@@ -63,7 +63,8 @@ Hostname) oppure con la regola di `cloudflared-aqf.yml` se il tunnel usa un
 file di configurazione.
 
 Il microfono funziona solo in HTTPS: le registrazioni vanno fatte
-dall'indirizzo del tunnel. Dall'IP in rete interna tutto il resto funziona.
+dall'indirizzo del tunnel. Lo specchio per il proiettore usa una WebSocket su
+`/api/diretta`: il tunnel Cloudflare la lascia passare senza configurazioni. Dall'IP in rete interna tutto il resto funziona.
 
 ## 5. Scegliere il disco dei dati
 

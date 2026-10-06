@@ -166,6 +166,17 @@ export function Libreria() {
           onChange={(e) => setCerca(e.target.value)}
           aria-label="Cerca"
         />
+        <button
+          type="button"
+          className="pulsante"
+          title="Da aprire sul PC del proiettore: mostra quello che presenti sull'iPad, in tempo reale"
+          onClick={() => {
+            entraSchermoIntero({ ancheIos: true });
+            vai('/specchio');
+          }}
+        >
+          📽 Specchio
+        </button>
         <button type="button" className="pulsante" onClick={nuovaCartella}>
           ＋ Cartella
         </button>

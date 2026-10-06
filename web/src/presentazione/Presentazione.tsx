@@ -7,6 +7,7 @@ import { api, get, patch, type Documento } from '../api';
 import { avvisa } from '../dialoghi';
 import { useSessione } from '../sessione';
 import { Cronometro, useInizioLezione } from './Cronometro';
+import { useDiretta, type MessaggioDiretta } from './diretta';
 import { PaginaPdf } from './PaginaPdf';
 import { usePennaVicina } from './penna';
 import { Registratore, registrazioneSupportata } from './registratore';
@@ -49,8 +50,11 @@ const LASER_MS = 900;
  *   con due dita, apre i comandi con un tocco al centro. Disegna solo se lo si
  *   chiede, e mai mentre la penna è in uso: il palmo appoggiato non lascia segni.
  */
-export default function Presentazione() {
-  const { id = '' } = useParams();
+export default function Presentazione({ specchio = false }: { specchio?: boolean }) {
+  const { id: idRotta = '' } = useParams();
+  // Lo specchio non sceglie il documento: segue quello aperto sull'iPad.
+  const [idSpecchio, setIdSpecchio] = useState<string | null>(null);
+  const id = specchio ? (idSpecchio ?? '') : idRotta;
   const vai = useNavigate();
   const { utente, aggiornaImpostazioni } = useSessione();
   const imp = utente!.impostazioni;
@@ -85,6 +89,50 @@ export default function Presentazione() {
   const [laser, setLaser] = useState<{ x: number; y: number; t: number }[]>([]);
   const [comandi, setComandi] = useState(false);
 
+  // --- Diretta: l'iPad trasmette, lo specchio (il PC del proiettore) copia ---
+
+  const remoto = useRef<Extract<MessaggioDiretta, { tipo: 'stato' }> | null>(null);
+  const [vistaRemota, setVistaRemota] = useState<Vista>({ scala: 1, x: 0, y: 0 });
+  const [inCorsoRemoto, setInCorsoRemoto] = useState<Tratto | null>(null);
+  const timerRemoto = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const diretta = useDiretta(specchio ? 'specchio' : 'presentatore', (m) => {
+    if (!specchio) return;
+    switch (m.tipo) {
+      case 'stato':
+        remoto.current = m;
+        setIdSpecchio(m.documento);
+        setPagina(m.pagina);
+        setMostraSegni(m.mostraSegni);
+        setVistaRemota(m.vista);
+        break;
+      case 'segni':
+        if (m.documento !== remoto.current?.documento) return;
+        setAnnotazioni((a) => ({ ...a, [m.pagina]: m.tratti }));
+        setInCorsoRemoto((t) => (t && m.tratti.some((x) => x.id === t.id) ? null : t));
+        break;
+      case 'tratto-inizio':
+        clearTimeout(timerRemoto.current);
+        setInCorsoRemoto(m.tratto);
+        break;
+      case 'tratto-punti':
+        setInCorsoRemoto((t) => (t && t.id === m.id ? { ...t, p: m.sostituisci ? m.punti : [...t.p, ...m.punti] } : t));
+        break;
+      case 'tratto-fine':
+        // Di solito lo toglie l'arrivo dei segni salvati; questo è il ripiego
+        // per un tratto scartato (una linea troppo corta, un pizzico).
+        timerRemoto.current = setTimeout(() => setInCorsoRemoto((t) => (t?.id === m.id ? null : t)), 600);
+        break;
+      case 'laser': {
+        const t = performance.now();
+        setLaser((l) => [...l, ...m.punti.map(([x, y]) => ({ x, y, t }))]);
+        break;
+      }
+    }
+  });
+  const trasmetti = (m: MessaggioDiretta) => {
+    if (!specchio && diretta.specchi > 0) diretta.invia(m);
+  };
+
   const barra = useRef<HTMLDivElement>(null);
   const foglio = useRef<HTMLDivElement>(null);
   const penna = usePennaVicina(barra);
@@ -94,8 +142,11 @@ export default function Presentazione() {
   // --- Caricamento -----------------------------------------------------------
 
   useEffect(() => {
+    if (!id) return;
     let annullato = false;
     let caricato: PDFDocumentProxy | null = null;
+    setPdf(null);
+    setDimPagina(null);
     void (async () => {
       try {
         const d = await get<Documento>(`/api/documenti/${id}`);
@@ -109,8 +160,11 @@ export default function Presentazione() {
         if (annullato) return void p.destroy();
         setAnnotazioni(Object.fromEntries(Object.entries(a).map(([k, v]) => [Number(k), v])));
         setPdf(p);
-        setPagina(Math.min(Math.max(1, d.ultima_pagina), p.numPages));
-        void patch(`/api/documenti/${id}`, { aperto: true, ...(d.pagine !== p.numPages ? { pagine: p.numPages } : {}) });
+        const iniziale = specchio ? (remoto.current?.pagina ?? 1) : d.ultima_pagina;
+        setPagina(Math.min(Math.max(1, iniziale), p.numPages));
+        if (!specchio) {
+          void patch(`/api/documenti/${id}`, { aperto: true, ...(d.pagine !== p.numPages ? { pagine: p.numPages } : {}) });
+        }
       } catch (err) {
         if (!annullato) setErrore((err as Error).message);
       }
@@ -119,7 +173,7 @@ export default function Presentazione() {
       annullato = true;
       void caricato?.destroy();
     };
-  }, [id]);
+  }, [id, specchio]);
 
   useEffect(() => {
     if (!pdf) return;
@@ -152,11 +206,32 @@ export default function Presentazione() {
   }, [dimPagina, schermo]);
   const altezzaVB = dimPagina ? (LARGHEZZA * dimPagina.h) / dimPagina.w : LARGHEZZA;
 
+  const vistaVisibile: Vista =
+    specchio && box ? { scala: vistaRemota.scala, x: vistaRemota.x * box.w, y: vistaRemota.y * box.h } : vista;
+
   // Ingranditi, la pagina si ridisegna più nitida quando il gesto si ferma.
   useEffect(() => {
-    const t = setTimeout(() => setNitidezza(Math.min(4, Math.max(1, Math.round(vista.scala * 2) / 2))), 250);
+    const t = setTimeout(() => setNitidezza(Math.min(4, Math.max(1, Math.round(vistaVisibile.scala * 2) / 2))), 250);
     return () => clearTimeout(t);
-  }, [vista.scala]);
+  }, [vistaVisibile.scala]);
+
+  // Il presentatore manda lo stato a ogni cambio, e i segni della pagina
+  // quando cambiano o quando si collega un nuovo specchio.
+  useEffect(() => {
+    if (specchio || !pdf || !box || !diretta.collegato) return;
+    diretta.invia({
+      tipo: 'stato',
+      documento: id,
+      pagina,
+      mostraSegni,
+      vista: { scala: vista.scala, x: vista.x / box.w, y: vista.y / box.h },
+    });
+  }, [specchio, pdf, box, diretta.collegato, id, pagina, mostraSegni, vista]); // eslint-disable-line react-hooks/exhaustive-deps
+  const segniPagina = annotazioni[pagina];
+  useEffect(() => {
+    if (specchio || !pdf || !diretta.collegato || diretta.specchi === 0) return;
+    diretta.invia({ tipo: 'segni', documento: id, pagina, tratti: segniPagina ?? [] });
+  }, [specchio, pdf, diretta.collegato, diretta.specchi, id, pagina, segniPagina]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Lo schermo non si spegne durante la lezione.
   useEffect(() => {
@@ -261,13 +336,14 @@ export default function Presentazione() {
   );
 
   useEffect(() => {
-    if (!pdf) return;
+    if (!pdf || specchio) return;
     const t = setTimeout(() => void patch(`/api/documenti/${id}`, { ultima_pagina: pagina }).catch(() => undefined), 1500);
     return () => clearTimeout(t);
-  }, [pagina, pdf, id]);
+  }, [pagina, pdf, id, specchio]);
 
   useEffect(() => {
     const tasto = (e: KeyboardEvent) => {
+      if (specchio) return;
       if ((e.target as HTMLElement)?.closest?.('input,textarea')) return;
       if (['ArrowRight', 'ArrowDown', 'PageDown', ' ', 'Enter'].includes(e.key)) {
         e.preventDefault();
@@ -311,10 +387,10 @@ export default function Presentazione() {
 
   const avviataAuto = useRef(false);
   useEffect(() => {
-    if (!pdf || avviataAuto.current || !imp.registrazione.automatica || !registrazioneSupportata()) return;
+    if (specchio || !pdf || avviataAuto.current || !imp.registrazione.automatica || !registrazioneSupportata()) return;
     avviataAuto.current = true;
     void avviaRegistrazione();
-  }, [pdf, imp.registrazione.automatica, avviaRegistrazione]);
+  }, [specchio, pdf, imp.registrazione.automatica, avviaRegistrazione]);
 
   useEffect(() => () => void registratore.current?.ferma().catch(() => undefined), []);
 
@@ -373,9 +449,13 @@ export default function Presentazione() {
     }
     const p = coordinate(e);
     if (strumento === 'gomma') return cancellaVicino(p);
-    if (strumento === 'laser') return setLaser((l) => [...l, { x: p[0], y: p[1], t: performance.now() }]);
+    if (strumento === 'laser') {
+      trasmetti({ tipo: 'laser', punti: [[p[0], p[1]]] });
+      return setLaser((l) => [...l, { x: p[0], y: p[1], t: performance.now() }]);
+    }
     if (!mostraSegni) setMostraSegni(true);
     tratto.current = { id: nuovoId(), s: strumento, c: colore, w: spessore, p: [p] };
+    trasmetti({ tipo: 'tratto-inizio', pagina, tratto: tratto.current });
     setInCorso(tratto.current);
   };
 
@@ -397,6 +477,7 @@ export default function Presentazione() {
     if (tocchi.current.size === 2) {
       // Il secondo dito trasforma tutto in un pizzico: il tratto del primo si annulla.
       if (attivo.current !== null) {
+        if (tratto.current) trasmetti({ tipo: 'tratto-fine', id: tratto.current.id });
         attivo.current = null;
         tratto.current = null;
         setInCorso(null);
@@ -453,11 +534,14 @@ export default function Presentazione() {
     if (strumento === 'gomma') return nuovi.forEach(cancellaVicino);
     if (strumento === 'laser') {
       const t = performance.now();
+      trasmetti({ tipo: 'laser', punti: nuovi.map((p) => [p[0], p[1]]) });
       return setLaser((l) => [...l, ...nuovi.map((p) => ({ x: p[0], y: p[1], t }))]);
     }
     const tr = tratto.current;
     if (!tr) return;
-    tr.p = tr.s === 'penna' || tr.s === 'evidenziatore' ? [...tr.p, ...nuovi] : [tr.p[0]!, nuovi[nuovi.length - 1]!];
+    const libero = tr.s === 'penna' || tr.s === 'evidenziatore';
+    tr.p = libero ? [...tr.p, ...nuovi] : [tr.p[0]!, nuovi[nuovi.length - 1]!];
+    trasmetti({ tipo: 'tratto-punti', id: tr.id, punti: libero ? nuovi : tr.p, sostituisci: !libero });
     setInCorso({ ...tr });
   };
 
@@ -500,6 +584,7 @@ export default function Presentazione() {
     const tr = tratto.current;
     tratto.current = null;
     setInCorso(null);
+    if (tr) trasmetti({ tipo: 'tratto-fine', id: tr.id });
     if (!tr || e.type === 'pointercancel' && tr.p.length < 2) return;
     const a = tr.p[0]!;
     const b = tr.p[tr.p.length - 1]!;
@@ -593,12 +678,12 @@ export default function Presentazione() {
     >
       {/* La superficie che riceve penna, mouse e dita. */}
       <div
-        style={{ position: 'absolute', inset: 0, cursor: strumento === 'laser' ? 'none' : 'crosshair' }}
-        onPointerDown={giu}
-        onPointerMove={muovi}
-        onPointerUp={su}
-        onPointerCancel={su}
-        onWheel={rotella}
+        style={{ position: 'absolute', inset: 0, cursor: specchio ? 'default' : strumento === 'laser' ? 'none' : 'crosshair' }}
+        onPointerDown={specchio ? undefined : giu}
+        onPointerMove={specchio ? undefined : muovi}
+        onPointerUp={specchio ? undefined : su}
+        onPointerCancel={specchio ? undefined : su}
+        onWheel={specchio ? undefined : rotella}
       >
         {pdf && box && (
           <div
@@ -608,7 +693,8 @@ export default function Presentazione() {
               top: '50%',
               width: box.w,
               height: box.h,
-              transform: `translate(-50%, -50%) translate(${vista.x}px, ${vista.y}px) scale(${vista.scala})`,
+              transform: `translate(-50%, -50%) translate(${vistaVisibile.x}px, ${vistaVisibile.y}px) scale(${vistaVisibile.scala})`,
+              transition: specchio ? 'transform .08s linear' : undefined,
               transformOrigin: 'center center',
               boxShadow: '0 0 40px rgba(0,0,0,.5)',
             }}
@@ -622,6 +708,7 @@ export default function Presentazione() {
               >
                 {mostraSegni && segni.map((t) => disegnaTratto(t))}
                 {inCorso && disegnaTratto(inCorso, false)}
+                {inCorsoRemoto && disegnaTratto(inCorsoRemoto, false)}
                 {laser.length > 0 && (
                   <g>
                     <polyline
@@ -648,11 +735,19 @@ export default function Presentazione() {
           </div>
         )}
         {!pdf && (
-          <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#aaa' }}>
-            Carico {doc?.titolo ?? 'il documento'}…
+          <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#aaa', padding: 24, textAlign: 'center' }}>
+            {specchio && !id
+              ? diretta.collegato
+                ? 'Specchio pronto. Apri una presentazione sull’iPad: comparirà qui.'
+                : 'Collegamento al Raspberry…'
+              : `Carico ${doc?.titolo ?? 'il documento'}…`}
           </div>
         )}
       </div>
+
+      {specchio && <ComandiSpecchio collegato={diretta.collegato} presentatori={diretta.presentatori} titolo={doc?.titolo} onEsci={() => (esciSchermoIntero(), vai('/'))} />}
+      {!specchio && (
+      <>
 
       {/* Barra degli strumenti: compare avvicinando la penna (o il mouse) al bordo sinistro. */}
       <div
@@ -749,6 +844,11 @@ export default function Presentazione() {
           ✕
         </BottoneComando>
         <div style={{ flex: 1, minWidth: 0, fontWeight: 650, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{doc?.titolo}</div>
+        {diretta.specchi > 0 && (
+          <span title="Proiettori che seguono questa presentazione" style={{ fontSize: 14, fontWeight: 700, opacity: 0.9, whiteSpace: 'nowrap' }}>
+            📽 {diretta.specchi}
+          </span>
+        )}
         {registrazioneSupportata() && (
           <BottoneComando
             onClick={() => void (registrando ? fermaRegistrazione() : avviaRegistrazione())}
@@ -845,7 +945,87 @@ export default function Presentazione() {
           }}
         />
       )}
+      </>
+      )}
     </div>
+  );
+}
+
+/**
+ * I comandi dello specchio: compaiono muovendo il mouse sul PC del proiettore
+ * e spariscono da soli. Sul proiettore, in lezione, c'è solo la pagina.
+ */
+function ComandiSpecchio({
+  collegato,
+  presentatori,
+  titolo,
+  onEsci,
+}: {
+  collegato: boolean;
+  presentatori: number;
+  titolo?: string;
+  onEsci: () => void;
+}) {
+  const [visibili, setVisibili] = useState(true);
+  const schermo = useSchermoIntero({ ancheIos: true });
+  useEffect(() => {
+    let t = setTimeout(() => setVisibili(false), 4000);
+    const muovi = () => {
+      setVisibili(true);
+      clearTimeout(t);
+      t = setTimeout(() => setVisibili(false), 3000);
+    };
+    const tasto = (e: KeyboardEvent) => {
+      if (e.key === 'f' || e.key === 'F') schermo.alterna();
+    };
+    window.addEventListener('pointermove', muovi);
+    window.addEventListener('pointerdown', muovi);
+    window.addEventListener('keydown', tasto);
+    return () => {
+      clearTimeout(t);
+      window.removeEventListener('pointermove', muovi);
+      window.removeEventListener('pointerdown', muovi);
+      window.removeEventListener('keydown', tasto);
+    };
+  }, [schermo.alterna]); // eslint-disable-line react-hooks/exhaustive-deps
+  const stato = !collegato ? '🔴 Non collegato, riprovo…' : presentatori > 0 ? '🟢 Segue l’iPad' : '🟡 In attesa dell’iPad';
+  return (
+    <>
+      <div
+        style={{
+          position: 'absolute',
+          left: 0,
+          right: 0,
+          top: 0,
+          zIndex: 7,
+          padding: '12px 14px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 10,
+          background: 'linear-gradient(rgba(0,0,0,.75), rgba(0,0,0,0))',
+          color: '#fff',
+          opacity: visibili ? 1 : 0,
+          transition: 'opacity .3s ease',
+          pointerEvents: visibili ? 'auto' : 'none',
+          cursor: 'default',
+        }}
+      >
+        <BottoneComando onClick={onEsci} titolo="Chiudi lo specchio">
+          ✕
+        </BottoneComando>
+        <div style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          <strong>📽 Specchio</strong> · {stato}
+          {titolo ? ` · ${titolo}` : ''}
+        </div>
+        {schermo.supportato && (
+          <BottoneComando onClick={schermo.alterna} titolo={schermo.attivo ? 'Esci dallo schermo intero (F)' : 'Schermo intero (F)'} largo>
+            {schermo.attivo ? '⤡ Finestra' : '⤢ Schermo intero'}
+          </BottoneComando>
+        )}
+      </div>
+      {/* Il puntatore del mouse sparisce quando i comandi se ne vanno. */}
+      {!visibili && <style>{'body { cursor: none; }'}</style>}
+    </>
   );
 }
 

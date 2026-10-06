@@ -34,6 +34,14 @@ export function App() {
             </Suspense>
           }
         />
+        <Route
+          path="/specchio"
+          element={
+            <Suspense fallback={<div style={{ position: 'fixed', inset: 0, background: '#111' }} />}>
+              <Presentazione specchio />
+            </Suspense>
+          }
+        />
         <Route path="/" element={<Telaio><Libreria /></Telaio>} />
         <Route path="/cartella/:id" element={<Telaio><Libreria /></Telaio>} />
         <Route path="/registrazioni" element={<Telaio><Registrazioni /></Telaio>} />

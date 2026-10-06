@@ -22,6 +22,11 @@ Installazione: **[`deploy/README.md`](deploy/README.md)**.
   schermo (a meno di chiedere un puntino nelle impostazioni). L'audio arriva al
   Raspberry a blocchi di 5 secondi mentre si parla, con i segni di quando si
   è cambiata pagina; si riascolta e scarica da **Registrazioni**.
+- **Specchio per il proiettore**: sul PC dell'aula apri **📽 Specchio** dalla
+  libreria (stesso account) e segue l'iPad in tempo reale: documento, pagina,
+  ingrandimento, tratti mentre li disegni, laser. Si apre una volta sola e
+  segue anche il cambio di documento; sul proiettore non compare nessun
+  comando (muovi il mouse per vederli, F per lo schermo intero).
 - **Cronometro della pausa**: minuti da quando si è in presentazione,
   quasi invisibili all'inizio, sempre più evidenti verso la soglia (45′ di
   default, modificabile dalle impostazioni o toccando il cronometro), rosso a
