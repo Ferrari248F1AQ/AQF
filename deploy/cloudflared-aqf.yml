@@ -1,0 +1,25 @@
+# Regola da aggiungere al tunnel Cloudflare GIÀ presente sul Raspberry
+# (di solito /etc/cloudflared/config.yml), PRIMA della regola finale
+# «- service: http_status:404». Non serve un secondo tunnel.
+#
+# Prima crea il record DNS (sostituisci nome del tunnel e dominio):
+#   cloudflared tunnel route dns <NOME_TUNNEL> lezioni.esempio.it
+# Poi: sudo systemctl restart cloudflared
+
+ingress:
+  - hostname: lezioni.esempio.it
+    service: http://127.0.0.1:8790
+    originRequest:
+      connectTimeout: 30s
+      # Il caricamento di un PowerPoint grande può durare un po'.
+      keepAliveTimeout: 90s
+
+  - service: http_status:404
+
+# Note
+# - Il microfono funziona solo in HTTPS: dal tunnel sì, da http://IP-del-Pi:8790 no.
+# - Non aggiungere regole «Cache Everything» su questo hostname: le risposte
+#   /api/* contengono dati personali. /assets/* ha l'impronta nel nome e si può
+#   tenere in cache.
+# - Se vuoi un secondo lucchetto, una policy di Cloudflare Access sull'hostname
+#   si somma al login della piattaforma.

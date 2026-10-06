@@ -1,0 +1,56 @@
+# Piattaforma «Lezioni di disegno» — servizio systemd (stessa impostazione di drAwQ).
+#
+# Ascolta solo su 127.0.0.1: dall'esterno ci si arriva dal tunnel Cloudflare
+# già presente sul Raspberry. Scrive solo nelle cartelle di ReadWritePaths.
+[Unit]
+Description=Lezioni di disegno — presentazione e annotazione di PDF e PowerPoint
+After=network-online.target local-fs.target
+Wants=network-online.target
+StartLimitBurst=5
+StartLimitIntervalSec=120
+
+[Service]
+Type=simple
+User=aqf
+Group=aqf
+WorkingDirectory=/opt/aqf
+EnvironmentFile=/etc/aqf/aqf.env
+ExecStart=/usr/bin/node /opt/aqf/server/dist/index.js
+Restart=always
+RestartSec=3
+KillSignal=SIGTERM
+TimeoutStopSec=30
+
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+# AF_NETLINK: Fastify elenca le interfacce di rete all'avvio.
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK
+CapabilityBoundingSet=
+
+# Dove il servizio può scrivere. /srv/aqf è il posto consigliato per montare
+# i dischi esterni; /media e /mnt servono a poter scegliere anche i dischi
+# montati lì in automatico (il «-» li rende facoltativi). Un disco va comunque
+# reso scrivibile all'utente aqf: vedi deploy/README.md.
+ReadWritePaths=/var/lib/aqf /srv/aqf -/media -/mnt
+
+# Le altre webapp del Raspberry hanno la precedenza.
+MemoryMax=1500M
+CPUQuota=250%
+Nice=5
+IOSchedulingClass=best-effort
+IOSchedulingPriority=5
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=aqf
+
+[Install]
+WantedBy=multi-user.target

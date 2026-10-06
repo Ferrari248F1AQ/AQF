@@ -1,0 +1,23 @@
+{
+  "name": "aqf-lezioni",
+  "private": true,
+  "version": "1.0.0",
+  "workspaces": [
+    "server",
+    "web"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "npm run build -w @aqf/server && npm run build -w @aqf/web",
+    "typecheck": "tsc -p server --noEmit && tsc -p web --noEmit",
+    "start": "node server/dist/index.js",
+    "utente": "node server/dist/cli.js",
+    "dev": "concurrently -n api,web -c cyan,magenta \"npm run dev -w @aqf/server\" \"npm run dev -w @aqf/web\""
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2",
+    "typescript": "^5.7.3"
+  }
+}
