@@ -32,16 +32,27 @@ if [[ ! -f /etc/aqf/aqf.env ]]; then
   install -m 640 -g aqf "$ORIGINE/deploy/aqf.env.example" /etc/aqf/aqf.env
   echo "Creato /etc/aqf/aqf.env"
 fi
+# Un aqf.env di una versione precedente teneva il servizio solo su 127.0.0.1,
+# irraggiungibile dalla rete interna e quindi dal tunnel: si corregge.
+if grep -q '^AQF_HOST=127\.0\.0\.1' /etc/aqf/aqf.env; then
+  sed -i 's/^AQF_HOST=127\.0\.0\.1/AQF_HOST=0.0.0.0/' /etc/aqf/aqf.env
+  echo "Aggiornato /etc/aqf/aqf.env: AQF_HOST=0.0.0.0 (ascolto in rete interna)"
+fi
+grep -q '^AQF_HOST=' /etc/aqf/aqf.env || echo 'AQF_HOST=0.0.0.0' >> /etc/aqf/aqf.env
 
 install -m 644 "$ORIGINE/deploy/aqf.service" /etc/systemd/system/aqf.service
 systemctl daemon-reload
 systemctl enable aqf.service >/dev/null
 systemctl restart aqf.service
 sleep 2
-if curl -fsS http://127.0.0.1:8790/api/salute >/dev/null; then
-  IP=$(hostname -I 2>/dev/null | awk '{print $1}')
-  echo "Servizio attivo su http://${IP:-IP-del-Raspberry}:8790 (rete interna)"
-  echo "Nel tunnel Cloudflare usa come servizio: http://${IP:-IP-del-Raspberry}:8790"
+IP=$(hostname -I 2>/dev/null | awk '{print $1}')
+# La prova si fa sull'IP di rete, non su 127.0.0.1: è da lì che arriva il tunnel.
+if curl -fsS "http://${IP:-127.0.0.1}:8790/api/salute" >/dev/null; then
+  echo "Servizio attivo su http://${IP}:8790 (rete interna)"
+  echo "Nel tunnel Cloudflare usa come servizio: http://${IP}:8790"
+elif curl -fsS http://127.0.0.1:8790/api/salute >/dev/null; then
+  echo "Il servizio risponde solo su 127.0.0.1: controlla AQF_HOST in /etc/aqf/aqf.env" >&2
+  exit 1
 else
   echo "Il servizio non risponde: journalctl -u aqf -n 50" >&2
   exit 1
