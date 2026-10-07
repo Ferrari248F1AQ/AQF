@@ -97,6 +97,9 @@ export function Libreria() {
       },
     },
     'separatore' as const,
+    ...(d.stato === 'pronto'
+      ? [{ testo: '🖍️ Scarica PDF con annotazioni', azione: () => window.open(`/api/documenti/${d.id}/annotato`, '_blank') }]
+      : []),
     { testo: '⬇️ Scarica originale', azione: () => window.open(`/api/documenti/${d.id}/originale`, '_blank') },
     ...(d.tipo !== 'pdf' && d.stato === 'pronto'
       ? [{ testo: '⬇️ Scarica PDF', azione: () => window.open(`/api/documenti/${d.id}/pdf`, '_blank') }]

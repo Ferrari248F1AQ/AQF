@@ -18,6 +18,9 @@ Installazione: **[`deploy/README.md`](deploy/README.md)**.
   tre spessori, annulla/ripeti. Salvate per pagina sul Raspberry, vettoriali.
   La barra compare **solo avvicinando la Pencil al bordo sinistro** e sparisce
   tornando sul foglio (stessa logica di drAwQ); il palmo appoggiato non lascia segni.
+- **PDF con annotazioni**: dal menu «⋯» di un documento, «Scarica PDF con
+  annotazioni» dà il PDF con i segni incisi come vettori sulle pagine e i fogli
+  della lavagna in coda.
 - **Registrazione della voce** durante la presentazione, senza nulla a
   schermo (a meno di chiedere un puntino nelle impostazioni). L'audio arriva al
   Raspberry a blocchi di 5 secondi mentre si parla, con i segni di quando si

@@ -6,6 +6,7 @@ import { pipeline } from 'node:stream/promises';
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { richiediUtente } from '../auth.js';
 import { accodaConversione, dopoPdf } from '../conversione.js';
+import { pdfAnnotato } from '../esporta.js';
 import { db, ora } from '../db.js';
 import { percorsoFile, preparaCartella, volumeAttivo } from '../storage.js';
 
@@ -314,6 +315,32 @@ export async function rotteLibreria(app: FastifyInstance): Promise<void> {
     if (!d) return errore(reply, 404, 'inesistente', 'Documento non trovato.');
     if (d.stato !== 'pronto') return errore(reply, 409, 'non_pronto', 'Il documento non è ancora pronto.');
     return inviaFile(reply, percorsoFile(d.volume_id, 'documenti', `${d.id}.pdf`), { tipo: 'application/pdf' });
+  });
+
+  /** Il PDF con le annotazioni incise e i fogli della lavagna in coda. */
+  app.get<{ Params: { id: string } }>('/api/documenti/:id/annotato', async (req, reply) => {
+    const d = documentoDi(req.params.id, req.utente!.id);
+    if (!d) return errore(reply, 404, 'inesistente', 'Documento non trovato.');
+    if (d.stato !== 'pronto') return errore(reply, 409, 'non_pronto', 'Il documento non è ancora pronto.');
+    const righe = db().prepare('SELECT pagina, tratti FROM annotazione WHERE documento_id = ?').all(d.id) as {
+      pagina: number;
+      tratti: string;
+    }[];
+    let dati: Uint8Array;
+    try {
+      dati = await pdfAnnotato(
+        percorsoFile(d.volume_id, 'documenti', `${d.id}.pdf`),
+        new Map(righe.map((r) => [r.pagina, JSON.parse(r.tratti) as unknown])),
+        d.titolo,
+      );
+    } catch (err) {
+      req.log.error(err);
+      return errore(reply, 500, 'esportazione', 'Non sono riuscito a preparare il PDF annotato.');
+    }
+    const nome = `${d.titolo.replace(/[\\/:*?"<>|]+/g, '-')} (annotato).pdf`;
+    reply.header('content-disposition', `attachment; filename*=UTF-8''${encodeURIComponent(nome)}`);
+    reply.header('cache-control', 'no-store');
+    return reply.type('application/pdf').send(Buffer.from(dati));
   });
 
   app.get<{ Params: { id: string } }>('/api/documenti/:id/originale', async (req, reply) => {
