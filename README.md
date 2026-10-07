@@ -1,4 +1,4 @@
-# Lezioni di disegno
+# AQF · PDF platform utility of UnivAQ
 
 Piattaforma web per proiettare e annotare a lezione i PDF e i PowerPoint del
 corso di disegno. Gira su un **Raspberry Pi 5**, in locale, ed è raggiungibile

@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { NOME, SOTTOTITOLO } from '../marchio';
 import { useSessione } from '../sessione';
 
 export function Accesso() {
@@ -37,8 +38,8 @@ export function Accesso() {
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <img src="/icona.svg" alt="" width={44} height={44} />
           <div>
-            <h1 style={{ fontSize: 22, margin: 0 }}>Lezioni di disegno</h1>
-            <div className="nota">Accesso riservato</div>
+            <h1 style={{ fontSize: 24, margin: 0 }}>{NOME}</h1>
+            <div className="nota">{SOTTOTITOLO}</div>
           </div>
         </div>
         <label className="campo">

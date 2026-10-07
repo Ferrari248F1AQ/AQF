@@ -1,10 +1,10 @@
-# Piattaforma «Lezioni di disegno» — servizio systemd (stessa impostazione di drAwQ).
+# AQF · PDF platform utility of UnivAQ — servizio systemd (stessa impostazione di drAwQ).
 #
 # Ascolta sull'IP del Raspberry in rete interna (AQF_HOST=0.0.0.0, porta 8790):
 # il tunnel Cloudflare esistente lo raggiunge lì. Scrive solo nelle cartelle di
 # ReadWritePaths.
 [Unit]
-Description=Lezioni di disegno — presentazione e annotazione di PDF e PowerPoint
+Description=AQF · PDF platform utility of UnivAQ — presentazione e annotazione di PDF e PowerPoint
 After=network-online.target local-fs.target
 Wants=network-online.target
 StartLimitBurst=5

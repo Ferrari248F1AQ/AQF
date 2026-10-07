@@ -197,7 +197,20 @@ button:focus-visible {
   width: 30px;
   height: 30px;
 }
-.marchio span {
+.nome-marchio {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.1;
+  min-width: 0;
+}
+.nome-marchio strong {
+  font-size: 18px;
+  letter-spacing: 0.04em;
+}
+.nome-marchio small {
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--testo-2);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -228,7 +241,7 @@ button:focus-visible {
   .navigazione a .etichetta {
     display: none;
   }
-  .marchio span {
+  .nome-marchio small {
     display: none;
   }
 }

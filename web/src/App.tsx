@@ -1,6 +1,7 @@
 import { lazy, Suspense, type ReactNode } from 'react';
 import { Navigate, NavLink, Route, Routes, useLocation } from 'react-router-dom';
 import { Dialoghi } from './dialoghi';
+import { NOME, SOTTOTITOLO } from './marchio';
 import { Accesso } from './schermate/Accesso';
 import { Impostazioni } from './schermate/Impostazioni';
 import { Libreria } from './schermate/Libreria';
@@ -64,7 +65,10 @@ function Telaio({ children }: { children: ReactNode }) {
       <header className="testata">
         <NavLink to="/" className="marchio">
           <img src="/icona.svg" alt="" />
-          <span>Lezioni di disegno</span>
+          <span className="nome-marchio">
+            <strong>{NOME}</strong>
+            <small>{SOTTOTITOLO}</small>
+          </span>
         </NavLink>
         <nav className="navigazione" aria-label="Sezioni">
           <NavLink to="/" end>
