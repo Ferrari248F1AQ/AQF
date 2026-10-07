@@ -347,7 +347,10 @@ export async function rotteLibreria(app: FastifyInstance): Promise<void> {
       const d = documentoDi(req.params.id, req.utente!.id);
       if (!d) return errore(reply, 404, 'inesistente', 'Documento non trovato.');
       const pagina = Number(req.params.pagina);
-      if (!Number.isInteger(pagina) || pagina < 1) return errore(reply, 400, 'pagina', 'Pagina non valida.');
+      // Le pagine negative sono i fogli della lavagna del documento.
+      if (!Number.isInteger(pagina) || pagina === 0 || Math.abs(pagina) > 100_000) {
+        return errore(reply, 400, 'pagina', 'Pagina non valida.');
+      }
       const tratti = req.body?.tratti;
       if (!Array.isArray(tratti)) return errore(reply, 400, 'tratti', 'Formato non valido.');
       if (tratti.length === 0) {

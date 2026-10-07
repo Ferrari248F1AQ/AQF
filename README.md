@@ -22,6 +22,11 @@ Installazione: **[`deploy/README.md`](deploy/README.md)**.
   schermo (a meno di chiedere un puntino nelle impostazioni). L'audio arriva al
   Raspberry a blocchi di 5 secondi mentre si parla, con i segni di quando si
   è cambiata pagina; si riascolta e scarica da **Registrazioni**.
+- **Lavagna bianca**: dal pulsante in cima alla barra degli strumenti (o dai
+  comandi, o col tasto L) si passa a un foglio bianco, ci si disegna e con un
+  altro tocco si torna alla slide dov'eri. Avanti/indietro scorrono i fogli
+  della lavagna; dopo l'ultimo, se è stato usato, se ne apre uno nuovo. I fogli
+  restano salvati con il documento e compaiono anche sullo specchio.
 - **Specchio per il proiettore**: sul PC dell'aula apri **📽 Specchio** dalla
   libreria (stesso account) e segue l'iPad in tempo reale: documento, pagina,
   ingrandimento, tratti mentre li disegni, laser. Si apre una volta sola e

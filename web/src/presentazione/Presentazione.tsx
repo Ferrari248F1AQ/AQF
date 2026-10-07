@@ -31,6 +31,15 @@ function preferenze(): { strumento: Strumento; colore: string; spessore: number 
   return { strumento: 'penna', colore: '#e53935', spessore: 3 };
 }
 
+/** Dopo che la punta si alza, per quanto un tocco è ancora considerato il palmo. */
+const PALMO_MS = 700;
+/** Di quanto devono allargarsi (o stringersi) due dita prima di ingrandire. */
+const SOGLIA_PIZZICO = 0.1;
+/** Sotto questo ingrandimento, a dita alzate si torna a pagina intera. */
+const SCATTO_SCALA = 1.25;
+/** Il foglio della lavagna: A orizzontale (√2 : 1). */
+const FOGLIO_LAVAGNA = { w: 1414, h: 1000 };
+
 /** Quanto resta visibile il laser dopo che la punta è passata. */
 const LASER_MS = 900;
 
@@ -63,6 +72,13 @@ export default function Presentazione({ specchio = false }: { specchio?: boolean
   const [pdf, setPdf] = useState<PDFDocumentProxy | null>(null);
   const [errore, setErrore] = useState<string | null>(null);
   const [pagina, setPagina] = useState(1);
+  /**
+   * La lavagna: fogli bianchi del documento, numerati 1, 2, 3… e salvati come
+   * pagine negative (-1, -2…) accanto alle annotazioni delle slide. Quando è
+   * aperta, `chiave` indica il foglio della lavagna invece della slide.
+   */
+  const [lavagna, setLavagna] = useState<number | null>(null);
+  const chiave = lavagna ? -lavagna : pagina;
   const [dimPagina, setDimPagina] = useState<{ w: number; h: number } | null>(null);
   const [schermo, setSchermo] = useState({ w: window.innerWidth, h: window.innerHeight });
 
@@ -102,6 +118,7 @@ export default function Presentazione({ specchio = false }: { specchio?: boolean
         remoto.current = m;
         setIdSpecchio(m.documento);
         setPagina(m.pagina);
+        setLavagna(m.lavagna ?? null);
         setMostraSegni(m.mostraSegni);
         setVistaRemota(m.vista);
         break;
@@ -199,12 +216,15 @@ export default function Presentazione({ specchio = false }: { specchio?: boolean
   }, []);
 
   // La pagina riempie lo schermo senza deformarsi.
+  // La lavagna ha le proporzioni di un foglio A orizzontale, uguali sull'iPad e
+  // sul proiettore: i segni restano dove li si è fatti anche su schermi diversi.
+  const dimVista = lavagna ? FOGLIO_LAVAGNA : dimPagina;
   const box = useMemo(() => {
-    if (!dimPagina) return null;
-    const k = Math.min(schermo.w / dimPagina.w, schermo.h / dimPagina.h);
-    return { w: Math.floor(dimPagina.w * k), h: Math.floor(dimPagina.h * k) };
-  }, [dimPagina, schermo]);
-  const altezzaVB = dimPagina ? (LARGHEZZA * dimPagina.h) / dimPagina.w : LARGHEZZA;
+    if (!dimVista) return null;
+    const k = Math.min(schermo.w / dimVista.w, schermo.h / dimVista.h);
+    return { w: Math.floor(dimVista.w * k), h: Math.floor(dimVista.h * k) };
+  }, [dimVista, schermo]);
+  const altezzaVB = dimVista ? (LARGHEZZA * dimVista.h) / dimVista.w : LARGHEZZA;
 
   const vistaVisibile: Vista =
     specchio && box ? { scala: vistaRemota.scala, x: vistaRemota.x * box.w, y: vistaRemota.y * box.h } : vista;
@@ -223,15 +243,16 @@ export default function Presentazione({ specchio = false }: { specchio?: boolean
       tipo: 'stato',
       documento: id,
       pagina,
+      lavagna,
       mostraSegni,
       vista: { scala: vista.scala, x: vista.x / box.w, y: vista.y / box.h },
     });
-  }, [specchio, pdf, box, diretta.collegato, id, pagina, mostraSegni, vista]); // eslint-disable-line react-hooks/exhaustive-deps
-  const segniPagina = annotazioni[pagina];
+  }, [specchio, pdf, box, diretta.collegato, id, pagina, lavagna, mostraSegni, vista]); // eslint-disable-line react-hooks/exhaustive-deps
+  const segniPagina = annotazioni[chiave];
   useEffect(() => {
     if (specchio || !pdf || !diretta.collegato || diretta.specchi === 0) return;
-    diretta.invia({ tipo: 'segni', documento: id, pagina, tratti: segniPagina ?? [] });
-  }, [specchio, pdf, diretta.collegato, diretta.specchi, id, pagina, segniPagina]); // eslint-disable-line react-hooks/exhaustive-deps
+    diretta.invia({ tipo: 'segni', documento: id, pagina: chiave, tratti: segniPagina ?? [] });
+  }, [specchio, pdf, diretta.collegato, diretta.specchi, id, chiave, segniPagina]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Lo schermo non si spegne durante la lezione.
   useEffect(() => {
@@ -304,18 +325,18 @@ export default function Presentazione({ specchio = false }: { specchio?: boolean
   );
 
   const annulla = () => {
-    const s = storia.current[pagina];
+    const s = storia.current[chiave];
     const prima = s?.indietro.pop();
     if (!s || !prima) return;
-    s.avanti.push(annotazioni[pagina] ?? []);
-    cambiaSegni(pagina, prima, false);
+    s.avanti.push(annotazioni[chiave] ?? []);
+    cambiaSegni(chiave, prima, false);
   };
   const ripeti = () => {
-    const s = storia.current[pagina];
+    const s = storia.current[chiave];
     const dopo = s?.avanti.pop();
     if (!s || !dopo) return;
-    s.indietro.push(annotazioni[pagina] ?? []);
-    cambiaSegni(pagina, dopo, false);
+    s.indietro.push(annotazioni[chiave] ?? []);
+    cambiaSegni(chiave, dopo, false);
   };
 
   // --- Pagine ----------------------------------------------------------------
@@ -335,6 +356,42 @@ export default function Presentazione({ specchio = false }: { specchio?: boolean
     [pdf],
   );
 
+  /** Quanti fogli ha la lavagna: almeno uno, più quelli già scritti. */
+  const fogliLavagna = Math.max(
+    1,
+    lavagna ?? 1,
+    ...Object.keys(annotazioni)
+      .map(Number)
+      .filter((k) => k < 0 && (annotazioni[k]?.length ?? 0) > 0)
+      .map((k) => -k),
+  );
+  const ultimaLavagna = useRef(1);
+
+  const vaiALavagna = useCallback((n: number | null) => {
+    setLavagna(n);
+    if (n) ultimaLavagna.current = n;
+    setVista({ scala: 1, x: 0, y: 0 });
+    setInCorso(null);
+    registratore.current?.segnaPagina(n ? -n : pagina);
+  }, [pagina]);
+
+  const alternaLavagna = useCallback(() => {
+    vaiALavagna(lavagna ? null : ultimaLavagna.current);
+  }, [lavagna, vaiALavagna]);
+
+  /** Avanti/indietro: fra le slide, o fra i fogli della lavagna se è aperta. */
+  const naviga = useCallback(
+    (passo: 1 | -1) => {
+      if (!lavagna) return vaiA(pagina + passo);
+      const n = lavagna + passo;
+      if (n < 1) return;
+      // Dopo l'ultimo foglio se ne apre uno nuovo, ma solo se quello attuale è stato usato.
+      if (n > fogliLavagna && (annotazioni[-lavagna]?.length ?? 0) === 0) return;
+      vaiALavagna(n);
+    },
+    [lavagna, pagina, vaiA, fogliLavagna, annotazioni, vaiALavagna],
+  );
+
   useEffect(() => {
     if (!pdf || specchio) return;
     const t = setTimeout(() => void patch(`/api/documenti/${id}`, { ultima_pagina: pagina }).catch(() => undefined), 1500);
@@ -347,12 +404,13 @@ export default function Presentazione({ specchio = false }: { specchio?: boolean
       if ((e.target as HTMLElement)?.closest?.('input,textarea')) return;
       if (['ArrowRight', 'ArrowDown', 'PageDown', ' ', 'Enter'].includes(e.key)) {
         e.preventDefault();
-        vaiA(pagina + 1);
+        naviga(1);
       } else if (['ArrowLeft', 'ArrowUp', 'PageUp', 'Backspace'].includes(e.key)) {
         e.preventDefault();
-        vaiA(pagina - 1);
-      } else if (e.key === 'Home') vaiA(1);
-      else if (e.key === 'End' && pdf) vaiA(pdf.numPages);
+        naviga(-1);
+      } else if (e.key === 'l' || e.key === 'L') alternaLavagna();
+      else if (e.key === 'Home' && !lavagna) vaiA(1);
+      else if (e.key === 'End' && pdf && !lavagna) vaiA(pdf.numPages);
       else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') {
         e.preventDefault();
         if (e.shiftKey) ripeti();
@@ -413,12 +471,19 @@ export default function Presentazione({ specchio = false }: { specchio?: boolean
 
   // --- Puntatori -------------------------------------------------------------
 
+  /**
+   * Ultimo *contatto* della penna con il vetro (non il sorvolo).
+   *
+   * Prima contava anche la punta che sorvola: con la Pencil in mano vicino allo
+   * schermo ogni scorrimento del dito veniva preso per il palmo e ignorato, e
+   * le slide sembravano non voler andare avanti.
+   */
   const ultimaPenna = useRef(0);
   const pennaInTratto = useRef(false);
   const attivo = useRef<number | null>(null);
   const tratto = useRef<Tratto | null>(null);
   const tocchi = useRef(new Map<number, { x: number; y: number }>());
-  const pizzico = useRef<{ distanza: number; centro: { x: number; y: number }; vista: Vista } | null>(null);
+  const pizzico = useRef<{ distanza: number; centro: { x: number; y: number }; vista: Vista; avviato?: boolean } | null>(null);
   const trascina = useRef<{ id: number; x0: number; y0: number; t0: number; vista: Vista; mosso: boolean } | null>(null);
   const ultimoTap = useRef(0);
 
@@ -429,12 +494,12 @@ export default function Presentazione({ specchio = false }: { specchio?: boolean
   };
 
   const cancellaVicino = (p: Punto) => {
-    const segni = ultimeAnnotazioni.current[pagina] ?? [];
+    const segni = ultimeAnnotazioni.current[chiave] ?? [];
     const r = foglio.current!.getBoundingClientRect();
     // ~14 px sullo schermo, qualunque sia l'ingrandimento.
     const raggio = (14 / r.width) * LARGHEZZA;
     const restano = segni.filter((t) => !tocca(t, p[0] * LARGHEZZA, p[1] * altezzaVB, raggio, altezzaVB));
-    if (restano.length !== segni.length) cambiaSegni(pagina, restano);
+    if (restano.length !== segni.length) cambiaSegni(chiave, restano);
   };
 
   const iniziaDisegno = (e: EventoPuntatore<HTMLDivElement>) => {
@@ -455,7 +520,7 @@ export default function Presentazione({ specchio = false }: { specchio?: boolean
     }
     if (!mostraSegni) setMostraSegni(true);
     tratto.current = { id: nuovoId(), s: strumento, c: colore, w: spessore, p: [p] };
-    trasmetti({ tipo: 'tratto-inizio', pagina, tratto: tratto.current });
+    trasmetti({ tipo: 'tratto-inizio', pagina: chiave, tratto: tratto.current });
     setInCorso(tratto.current);
   };
 
@@ -471,8 +536,8 @@ export default function Presentazione({ specchio = false }: { specchio?: boolean
       if (e.button !== 0) return;
       return iniziaDisegno(e);
     }
-    // Dito. Mentre la penna scrive, o l'ha appena fatto, è il palmo: non conta.
-    if (pennaInTratto.current || Date.now() - ultimaPenna.current < 1500) return;
+    // Dito. Mentre la penna scrive, o l'ha appena alzata, è il palmo: non conta.
+    if (pennaInTratto.current || Date.now() - ultimaPenna.current < PALMO_MS) return;
     tocchi.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
     if (tocchi.current.size === 2) {
       // Il secondo dito trasforma tutto in un pizzico: il tratto del primo si annulla.
@@ -498,7 +563,7 @@ export default function Presentazione({ specchio = false }: { specchio?: boolean
   };
 
   const muovi = (e: EventoPuntatore<HTMLDivElement>) => {
-    if (e.pointerType === 'pen') ultimaPenna.current = Date.now();
+    if (e.pointerType === 'pen' && e.buttons !== 0) ultimaPenna.current = Date.now();
     if (e.pointerType === 'touch' && tocchi.current.has(e.pointerId)) {
       tocchi.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
       const z = pizzico.current;
@@ -506,6 +571,9 @@ export default function Presentazione({ specchio = false }: { specchio?: boolean
         const [a, b] = [...tocchi.current.values()];
         const d = Math.hypot(a!.x - b!.x, a!.y - b!.y);
         const c = { x: (a!.x + b!.x) / 2, y: (a!.y + b!.y) / 2 };
+        // Due dita appoggiate senza allargarle (il pollice, il palmo) non ingrandiscono.
+        if (!z.avviato && Math.abs(d / z.distanza - 1) < SOGLIA_PIZZICO) return;
+        z.avviato = true;
         const scala = Math.min(6, Math.max(1, (z.vista.scala * d) / z.distanza));
         const k = scala / z.vista.scala;
         // Il punto sotto le dita resta sotto le dita.
@@ -549,15 +617,20 @@ export default function Presentazione({ specchio = false }: { specchio?: boolean
     if (e.pointerType === 'touch') {
       const t = trascina.current;
       tocchi.current.delete(e.pointerId);
-      if (tocchi.current.size < 2) pizzico.current = null;
+      if (tocchi.current.size < 2 && pizzico.current) {
+        pizzico.current = null;
+        // Un ingrandimento appena accennato torna a pagina intera: invisibile,
+        // bloccava lo scorrimento delle slide.
+        setVista((v) => (v.scala < SCATTO_SCALA ? { scala: 1, x: 0, y: 0 } : v));
+      }
       if (t && t.id === e.pointerId) {
         trascina.current = null;
         if (e.type !== 'pointerup') return;
         const dx = e.clientX - t.x0;
         const dy = e.clientY - t.y0;
         const dt = Date.now() - t.t0;
-        if (t.vista.scala <= 1.01 && Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5 && dt < 800) {
-          vaiA(pagina + (dx < 0 ? 1 : -1));
+        if (t.vista.scala <= 1.01 && Math.abs(dx) > 45 && Math.abs(dx) > Math.abs(dy) * 1.2 && dt < 1000) {
+          naviga(dx < 0 ? 1 : -1);
           return;
         }
         if (!t.mosso && dt < 350) {
@@ -568,9 +641,9 @@ export default function Presentazione({ specchio = false }: { specchio?: boolean
             return;
           }
           ultimoTap.current = adesso;
-          // Tocco ai bordi: pagina precedente / successiva; al centro: i comandi.
-          if (vista.scala <= 1.01 && e.clientX < schermo.w * 0.18) vaiA(pagina - 1);
-          else if (vista.scala <= 1.01 && e.clientX > schermo.w * 0.82) vaiA(pagina + 1);
+          // Tocco ai bordi: pagina precedente / successiva (anche ingranditi); al centro: i comandi.
+          if (e.clientX < schermo.w * 0.2) naviga(-1);
+          else if (e.clientX > schermo.w * 0.8) naviga(1);
           else if (comandi) setComandi(false);
           else mostraComandi();
         }
@@ -591,13 +664,13 @@ export default function Presentazione({ specchio = false }: { specchio?: boolean
     const geometrico = tr.s !== 'penna' && tr.s !== 'evidenziatore';
     if (geometrico && Math.hypot(b[0] - a[0], b[1] - a[1]) < 0.004) return;
     const finale: Tratto = { ...tr, p: geometrico ? [a, b] : semplifica(tr.p, 0.0004 / vista.scala) };
-    cambiaSegni(pagina, [...(ultimeAnnotazioni.current[pagina] ?? []), finale]);
+    cambiaSegni(chiave, [...(ultimeAnnotazioni.current[chiave] ?? []), finale]);
   };
 
   const rotella = (e: React.WheelEvent) => {
     if (e.ctrlKey || e.metaKey) {
       const scala = Math.min(6, Math.max(1, vista.scala * (e.deltaY < 0 ? 1.1 : 1 / 1.1)));
-      setVista(scala <= 1.01 ? { scala: 1, x: 0, y: 0 } : { ...vista, scala });
+      setVista(scala < 1.05 ? { scala: 1, x: 0, y: 0 } : { ...vista, scala });
     }
   };
 
@@ -616,8 +689,8 @@ export default function Presentazione({ specchio = false }: { specchio?: boolean
 
   // --- Disegno ---------------------------------------------------------------
 
-  const segni = annotazioni[pagina] ?? [];
-  const s = storia.current[pagina];
+  const segni = annotazioni[chiave] ?? [];
+  const s = storia.current[chiave];
 
   const disegnaTratto = (t: Tratto, finito = true) => {
     const f = forma(t, altezzaVB, finito);
@@ -700,13 +773,17 @@ export default function Presentazione({ specchio = false }: { specchio?: boolean
             }}
           >
             <div ref={foglio} style={{ position: 'absolute', inset: 0 }}>
-              <PaginaPdf pdf={pdf} numero={pagina} larghezza={box.w} altezza={box.h} nitidezza={nitidezza} />
+              {lavagna ? (
+                <div style={{ width: box.w, height: box.h, background: '#fff' }} aria-label={`Lavagna, foglio ${lavagna}`} />
+              ) : (
+                <PaginaPdf pdf={pdf} numero={pagina} larghezza={box.w} altezza={box.h} nitidezza={nitidezza} />
+              )}
               <svg
                 viewBox={`0 0 ${LARGHEZZA} ${altezzaVB}`}
                 preserveAspectRatio="none"
                 style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none', overflow: 'visible' }}
               >
-                {mostraSegni && segni.map((t) => disegnaTratto(t))}
+                {(mostraSegni || lavagna) && segni.map((t) => disegnaTratto(t))}
                 {inCorso && disegnaTratto(inCorso, false)}
                 {inCorsoRemoto && disegnaTratto(inCorsoRemoto, false)}
                 {laser.length > 0 && (
@@ -779,7 +856,9 @@ export default function Presentazione({ specchio = false }: { specchio?: boolean
           onSpessore={setSpessore}
           onAnnulla={annulla}
           onRipeti={ripeti}
-          onPulisci={() => segni.length > 0 && cambiaSegni(pagina, [])}
+          onPulisci={() => segni.length > 0 && cambiaSegni(chiave, [])}
+          lavagna={lavagna !== null}
+          onLavagna={alternaLavagna}
           puoAnnullare={(s?.indietro.length ?? 0) > 0}
           puoRipetere={(s?.avanti.length ?? 0) > 0}
           haSegni={segni.length > 0}
@@ -843,7 +922,9 @@ export default function Presentazione({ specchio = false }: { specchio?: boolean
         <BottoneComando onClick={() => void esci()} titolo="Esci dalla presentazione">
           ✕
         </BottoneComando>
-        <div style={{ flex: 1, minWidth: 0, fontWeight: 650, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{doc?.titolo}</div>
+        <div style={{ flex: 1, minWidth: 0, fontWeight: 650, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {lavagna ? `Lavagna · ${doc?.titolo ?? ''}` : doc?.titolo}
+        </div>
         {diretta.specchi > 0 && (
           <span title="Proiettori che seguono questa presentazione" style={{ fontSize: 14, fontWeight: 700, opacity: 0.9, whiteSpace: 'nowrap' }}>
             📽 {diretta.specchi}
@@ -859,6 +940,9 @@ export default function Presentazione({ specchio = false }: { specchio?: boolean
             {registrando ? '■ Stop' : '🎙️ Registra'}
           </BottoneComando>
         )}
+        <BottoneComando onClick={alternaLavagna} titolo={lavagna ? 'Torna alla slide (L)' : 'Apri la lavagna (L)'} attivo={lavagna !== null} coloreAttivo="#e3ab2f" largo>
+          {lavagna ? '↩︎ Slide' : '⬜ Lavagna'}
+        </BottoneComando>
         <BottoneComando onClick={() => setMostraSegni((v) => !v)} titolo={mostraSegni ? 'Nascondi le annotazioni' : 'Mostra le annotazioni'} attivo={!mostraSegni}>
           {mostraSegni ? '👁' : '🚫'}
         </BottoneComando>
@@ -895,26 +979,62 @@ export default function Presentazione({ specchio = false }: { specchio?: boolean
           pointerEvents: comandi ? 'auto' : 'none',
         }}
       >
-        <BottoneComando onClick={() => vaiA(pagina - 1)} titolo="Pagina precedente" disabilitato={pagina <= 1}>
+        <BottoneComando onClick={() => naviga(-1)} titolo="Indietro" disabilitato={lavagna ? lavagna <= 1 : pagina <= 1}>
           ‹
         </BottoneComando>
-        <input
-          type="range"
-          min={1}
-          max={Math.max(1, totale)}
-          value={pagina}
-          onChange={(e) => vaiA(Number(e.target.value))}
-          aria-label="Vai alla pagina"
-          style={{ flex: 1, accentColor: '#e3ab2f', minWidth: 0 }}
-        />
-        <span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 650, whiteSpace: 'nowrap' }}>
-          {pagina} / {totale}
-        </span>
-        <BottoneComando onClick={() => vaiA(pagina + 1)} titolo="Pagina successiva" disabilitato={pagina >= totale}>
+        {lavagna ? (
+          <span style={{ flex: 1, textAlign: 'center', fontWeight: 650 }}>
+            Lavagna · foglio {lavagna} di {fogliLavagna}
+            {lavagna === fogliLavagna && (annotazioni[-lavagna]?.length ?? 0) > 0 ? ' — avanti per un foglio nuovo' : ''}
+          </span>
+        ) : (
+          <>
+            <input
+              type="range"
+              min={1}
+              max={Math.max(1, totale)}
+              value={pagina}
+              onChange={(e) => vaiA(Number(e.target.value))}
+              aria-label="Vai alla pagina"
+              style={{ flex: 1, accentColor: '#e3ab2f', minWidth: 0 }}
+            />
+            <span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 650, whiteSpace: 'nowrap' }}>
+              {pagina} / {totale}
+            </span>
+          </>
+        )}
+        <BottoneComando
+          onClick={() => naviga(1)}
+          titolo="Avanti"
+          disabilitato={lavagna ? lavagna >= fogliLavagna && (annotazioni[-lavagna]?.length ?? 0) === 0 : pagina >= totale}
+        >
           ›
         </BottoneComando>
       </div>
 
+      {vista.scala > 1.01 && (
+        <button
+          type="button"
+          data-resta-aperta
+          onClick={() => setVista({ scala: 1, x: 0, y: 0 })}
+          title="Torna a pagina intera"
+          style={{
+            position: 'absolute',
+            left: 'max(12px, env(safe-area-inset-left))',
+            bottom: 'max(12px, env(safe-area-inset-bottom))',
+            zIndex: 8,
+            border: 'none',
+            borderRadius: 999,
+            padding: '8px 14px',
+            background: 'rgba(28,28,26,.85)',
+            color: '#fff',
+            font: '700 14px var(--font)',
+            cursor: 'pointer',
+          }}
+        >
+          {Math.round(vista.scala * 100)}% · pagina intera
+        </button>
+      )}
       {imp.cronometro.attivo && (
         <Cronometro
           inizio={inizioLezione}
@@ -1034,6 +1154,7 @@ function BottoneComando({
   titolo,
   children,
   attivo,
+  coloreAttivo = '#e53935',
   largo,
   disabilitato,
 }: {
@@ -1041,6 +1162,7 @@ function BottoneComando({
   titolo: string;
   children: React.ReactNode;
   attivo?: boolean;
+  coloreAttivo?: string;
   largo?: boolean;
   disabilitato?: boolean;
 }) {
@@ -1057,8 +1179,8 @@ function BottoneComando({
         padding: largo ? '0 14px' : 0,
         borderRadius: 12,
         border: 'none',
-        background: attivo ? '#e53935' : 'rgba(255,255,255,.14)',
-        color: '#fff',
+        background: attivo ? coloreAttivo : 'rgba(255,255,255,.14)',
+        color: attivo && coloreAttivo !== '#e53935' ? '#1c1c1a' : '#fff',
         fontSize: largo ? 15 : 20,
         fontWeight: 700,
         cursor: disabilitato ? 'default' : 'pointer',

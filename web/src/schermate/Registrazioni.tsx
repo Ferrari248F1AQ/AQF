@@ -90,7 +90,7 @@ function VoceRegistrazione({ r, ricarica }: { r: Registrazione; ricarica: () => 
                       void audio.current.play();
                     }}
                   >
-                    {durata(p.t)} · pag. {p.pagina}
+                    {durata(p.t)} · {p.pagina < 0 ? `lavagna ${-p.pagina}` : `pag. ${p.pagina}`}
                   </button>
                 ))}
               </div>

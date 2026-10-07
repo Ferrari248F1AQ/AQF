@@ -6,6 +6,8 @@ export interface StatoDiretta {
   tipo: 'stato';
   documento: string;
   pagina: number;
+  /** Foglio della lavagna aperto, o null se si sta mostrando la slide. */
+  lavagna?: number | null;
   mostraSegni: boolean;
   /** Ingrandimento; x e y sono frazioni della pagina, così valgono a ogni risoluzione. */
   vista: { scala: number; x: number; y: number };

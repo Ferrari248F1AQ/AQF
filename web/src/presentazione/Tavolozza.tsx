@@ -129,6 +129,8 @@ export function Tavolozza({
   haSegni,
   ditoDisegna,
   onDito,
+  lavagna,
+  onLavagna,
 }: {
   strumento: Strumento;
   colore: string;
@@ -142,6 +144,8 @@ export function Tavolozza({
   puoAnnullare: boolean;
   puoRipetere: boolean;
   haSegni: boolean;
+  lavagna: boolean;
+  onLavagna: () => void;
   ditoDisegna: boolean;
   onDito: (v: boolean) => void;
 }) {
@@ -163,6 +167,29 @@ export function Tavolozza({
         boxShadow: '0 8px 30px rgba(0,0,0,.35)',
       }}
     >
+      {/* In cima, dove la punta arriva per prima: un tocco apre la lavagna, un altro torna alla slide. */}
+      <button
+        type="button"
+        onClick={onLavagna}
+        title={lavagna ? 'Torna alla slide' : 'Apri la lavagna bianca'}
+        aria-label={lavagna ? 'Torna alla slide' : 'Apri la lavagna bianca'}
+        aria-pressed={lavagna}
+        style={{
+          width: lato,
+          minHeight: lato,
+          flex: 'none',
+          borderRadius: 10,
+          border: lavagna ? 'none' : '2px solid rgba(255,255,255,.55)',
+          background: lavagna ? '#e3ab2f' : '#fff',
+          color: '#1c1c1a',
+          cursor: 'pointer',
+          font: '800 10px/1.1 var(--font)',
+          padding: 2,
+        }}
+      >
+        {lavagna ? '↩︎ SLIDE' : 'LAVA­GNA'}
+      </button>
+      <Separatore />
       {ORDINE.map((s) => (
         <Bottone key={s} attivo={strumento === s} onClick={() => onStrumento(s)} titolo={NOMI[s]}>
           {ICONE[s]}
