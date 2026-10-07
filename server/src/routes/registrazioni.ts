@@ -123,11 +123,21 @@ export async function rotteRegistrazioni(app: FastifyInstance): Promise<void> {
     return { ok: true, pezzi: r.pezzi + 1 };
   });
 
-  app.post<{ Params: { id: string }; Body: { durata_s?: number; pagine?: { t: number; pagina: number }[] } }>(
+  app.post<{
+    Params: { id: string };
+    Body: { durata_s?: number; pagine?: { t: number; pagina: number }[]; diagnostica?: unknown };
+  }>(
     '/api/registrazioni/:id/fine',
     async (req, reply) => {
       const r = di(req.params.id, req.utente!.id);
       if (!r) return errore(reply, 404, 'inesistente', 'Registrazione non trovata.');
+      req.log.info({ registrazione: r.id, byte: r.dimensione, diagnostica: req.body?.diagnostica }, 'registrazione conclusa');
+      // Una registrazione senza audio non serve a nessuno: si toglie subito.
+      if (r.dimensione === 0) {
+        await rm(percorsoFile(r.volume_id, 'registrazioni', `${r.id}.${r.estensione}`), { force: true });
+        db().prepare('DELETE FROM registrazione WHERE id = ?').run(r.id);
+        return { vuota: true };
+      }
       const durata = Number(req.body?.durata_s);
       const pagine = Array.isArray(req.body?.pagine)
         ? req.body!.pagine.filter((p) => Number.isFinite(p?.t) && Number.isInteger(p?.pagina)).slice(0, 5000)
@@ -185,9 +195,15 @@ export async function rotteRegistrazioni(app: FastifyInstance): Promise<void> {
   });
 }
 
-/** Registrazioni rimaste aperte (tablet spento a metà): dopo un'ora senza pezzi si chiudono. */
+/**
+ * Registrazioni rimaste aperte (tablet spento a metà): dopo un'ora senza pezzi
+ * si chiudono. Quelle senza nemmeno un byte di audio si tolgono.
+ */
 export function chiudiRegistrazioniAbbandonate(): void {
   const limite = new Date(Date.now() - 3600_000).toISOString();
+  db()
+    .prepare("DELETE FROM registrazione WHERE dimensione = 0 AND (stato = 'conclusa' OR aggiornata_il < ?)")
+    .run(limite);
   db()
     .prepare("UPDATE registrazione SET stato = 'conclusa', conclusa_il = aggiornata_il WHERE stato = 'in_corso' AND aggiornata_il < ?")
     .run(limite);

@@ -426,6 +426,7 @@ export default function Presentazione({ specchio = false }: { specchio?: boolean
   const avviaRegistrazione = useCallback(async () => {
     const r = (registratore.current ??= new Registratore());
     r.onCambio = setRegistrando;
+    r.onErrore = (m) => avvisa(`🎙️ ${m}`);
     try {
       await r.avvia(id, pagina);
     } catch (err) {
@@ -436,8 +437,8 @@ export default function Presentazione({ specchio = false }: { specchio?: boolean
 
   const fermaRegistrazione = useCallback(async () => {
     try {
-      await registratore.current?.ferma();
-      avvisa('Registrazione salvata.');
+      const piena = await registratore.current?.ferma();
+      avvisa(piena ? 'Registrazione salvata.' : 'Nessun audio ricevuto: la registrazione vuota non è stata salvata.');
     } catch (err) {
       avvisa(`Registrazione: ${(err as Error).message}`);
     }
@@ -451,6 +452,22 @@ export default function Presentazione({ specchio = false }: { specchio?: boolean
   }, [specchio, pdf, imp.registrazione.automatica, avviaRegistrazione]);
 
   useEffect(() => () => void registratore.current?.ferma().catch(() => undefined), []);
+
+  // Mentre registra, il pulsante mostra tempo e audio già al sicuro sul
+  // Raspberry: si vede subito se qualcosa non va, non a fine lezione.
+  const [, setBattito] = useState(0);
+  useEffect(() => {
+    if (!registrando) return;
+    const t = setInterval(() => setBattito((n) => n + 1), 1000);
+    return () => clearInterval(t);
+  }, [registrando]);
+  const infoRegistrazione = (() => {
+    const r = registratore.current;
+    if (!r || !registrando) return '';
+    const sec = Math.floor(r.secondi);
+    const kb = Math.round(r.byteInviati / 1024);
+    return `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')} · ${kb < 1024 ? `${kb} KB` : `${(kb / 1024).toFixed(1)} MB`}`;
+  })();
 
   const esci = async () => {
     salva(true);
@@ -937,7 +954,7 @@ export default function Presentazione({ specchio = false }: { specchio?: boolean
             attivo={registrando}
             largo
           >
-            {registrando ? '■ Stop' : '🎙️ Registra'}
+            {registrando ? `■ Stop · ${infoRegistrazione}` : '🎙️ Registra'}
           </BottoneComando>
         )}
         <BottoneComando onClick={alternaLavagna} titolo={lavagna ? 'Torna alla slide (L)' : 'Apri la lavagna (L)'} attivo={lavagna !== null} coloreAttivo="#e3ab2f" largo>
