@@ -11,7 +11,7 @@ import { useDiretta, type MessaggioDiretta } from './diretta';
 import { PaginaPdf } from './PaginaPdf';
 import { usePennaVicina } from './penna';
 import { Registratore, registrazioneSupportata } from './registratore';
-import { esciSchermoIntero, useSchermoIntero } from './schermoIntero';
+import { esciSchermoIntero, inSchermoIntero, useSchermoIntero } from './schermoIntero';
 import { Tavolozza } from './Tavolozza';
 import { forma, LARGHEZZA, nuovoId, semplifica, tocca, type Strumento, type Tratto } from './tratti';
 
@@ -409,6 +409,8 @@ export default function Presentazione({ specchio = false }: { specchio?: boolean
         e.preventDefault();
         naviga(-1);
       } else if (e.key === 'l' || e.key === 'L') alternaLavagna();
+      // Esc: se il browser è a schermo intero lo chiude lui; altrimenti si esce dalla presentazione.
+      else if (e.key === 'Escape' && !inSchermoIntero()) void esci();
       else if (e.key === 'Home' && !lavagna) vaiA(1);
       else if (e.key === 'End' && pdf && !lavagna) vaiA(pdf.numPages);
       else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') {
@@ -485,6 +487,36 @@ export default function Presentazione({ specchio = false }: { specchio?: boolean
     timerComandi.current = setTimeout(() => setComandi(false), 5000);
   }, []);
   const tieniComandi = () => comandi && mostraComandi();
+
+  // Col mouse (PC, portatile): avvicinarsi al bordo in alto o in basso mostra i comandi.
+  useEffect(() => {
+    if (specchio) return;
+    const muovi = (e: PointerEvent) => {
+      if (e.pointerType === 'mouse' && e.buttons === 0 && (e.clientY < 70 || e.clientY > window.innerHeight - 70)) mostraComandi();
+    };
+    window.addEventListener('pointermove', muovi);
+    return () => window.removeEventListener('pointermove', muovi);
+  }, [specchio, mostraComandi]);
+
+  /**
+   * Le prime volte, un suggerimento su come uscire: i comandi sono nascosti
+   * di proposito, ma chi non sa che ci sono non trova la porta.
+   */
+  const [suggerimento, setSuggerimento] = useState(false);
+  useEffect(() => {
+    if (specchio || !pdf) return;
+    let volte = 0;
+    try {
+      volte = Number(localStorage.getItem('aqf.suggerimento-uscita') ?? 0);
+      if (volte >= 3) return;
+      localStorage.setItem('aqf.suggerimento-uscita', String(volte + 1));
+    } catch {
+      /* senza memoria lo si mostra comunque */
+    }
+    setSuggerimento(true);
+    const t = setTimeout(() => setSuggerimento(false), 7000);
+    return () => clearTimeout(t);
+  }, [specchio, pdf]);
 
   // --- Puntatori -------------------------------------------------------------
 
@@ -876,6 +908,7 @@ export default function Presentazione({ specchio = false }: { specchio?: boolean
           onPulisci={() => segni.length > 0 && cambiaSegni(chiave, [])}
           lavagna={lavagna !== null}
           onLavagna={alternaLavagna}
+          onEsci={() => void esci()}
           puoAnnullare={(s?.indietro.length ?? 0) > 0}
           puoRipetere={(s?.avanti.length ?? 0) > 0}
           haSegni={segni.length > 0}
@@ -936,8 +969,8 @@ export default function Presentazione({ specchio = false }: { specchio?: boolean
           pointerEvents: comandi ? 'auto' : 'none',
         }}
       >
-        <BottoneComando onClick={() => void esci()} titolo="Esci dalla presentazione">
-          ✕
+        <BottoneComando onClick={() => void esci()} titolo="Esci dalla presentazione" largo>
+          ✕ Esci
         </BottoneComando>
         <div style={{ flex: 1, minWidth: 0, fontWeight: 650, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           {lavagna ? `Lavagna · ${doc?.titolo ?? ''}` : doc?.titolo}
@@ -1029,6 +1062,30 @@ export default function Presentazione({ specchio = false }: { specchio?: boolean
         </BottoneComando>
       </div>
 
+      {suggerimento && !comandi && (
+        <div
+          onClick={() => setSuggerimento(false)}
+          style={{
+            position: 'absolute',
+            left: '50%',
+            bottom: 'max(24px, env(safe-area-inset-bottom))',
+            transform: 'translateX(-50%)',
+            zIndex: 9,
+            maxWidth: 'calc(100vw - 32px)',
+            padding: '12px 18px',
+            borderRadius: 14,
+            background: 'rgba(28,28,26,.92)',
+            color: '#fff',
+            font: '500 15px/1.45 var(--font)',
+            textAlign: 'center',
+            boxShadow: '0 8px 30px rgba(0,0,0,.4)',
+          }}
+        >
+          <strong>Per uscire:</strong> tocca il centro dello schermo con un dito, poi <strong>✕</strong> in alto a sinistra.
+          <br />
+          Oppure avvicina la Pencil al bordo sinistro → <strong>✕ ESCI</strong> in cima alla barra · da tastiera <strong>Esc</strong>.
+        </div>
+      )}
       {vista.scala > 1.01 && (
         <button
           type="button"

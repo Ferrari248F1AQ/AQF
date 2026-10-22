@@ -131,6 +131,7 @@ export function Tavolozza({
   onDito,
   lavagna,
   onLavagna,
+  onEsci,
 }: {
   strumento: Strumento;
   colore: string;
@@ -148,6 +149,7 @@ export function Tavolozza({
   onLavagna: () => void;
   ditoDisegna: boolean;
   onDito: (v: boolean) => void;
+  onEsci: () => void;
 }) {
   return (
     <div
@@ -167,6 +169,26 @@ export function Tavolozza({
         boxShadow: '0 8px 30px rgba(0,0,0,.35)',
       }}
     >
+      <button
+        type="button"
+        onClick={onEsci}
+        title="Esci dalla presentazione"
+        aria-label="Esci dalla presentazione"
+        style={{
+          width: lato,
+          height: 30,
+          flex: 'none',
+          borderRadius: 8,
+          border: 'none',
+          background: 'rgba(229,57,53,.9)',
+          color: '#fff',
+          cursor: 'pointer',
+          font: '800 11px var(--font)',
+          padding: 0,
+        }}
+      >
+        ✕ ESCI
+      </button>
       {/* In cima, dove la punta arriva per prima: un tocco apre la lavagna, un altro torna alla slide. */}
       <button
         type="button"
@@ -258,6 +280,7 @@ export function Tavolozza({
       <Bottone attivo={ditoDisegna} onClick={() => onDito(!ditoDisegna)} titolo={ditoDisegna ? 'Il dito disegna (tocca per sfogliare col dito)' : 'Il dito sfoglia (tocca per disegnare col dito)'}>
         ☝︎
       </Bottone>
+
     </div>
   );
 }
