@@ -46,9 +46,9 @@ function contorno(t: Tratto, altezza: number): number[][] {
   const evidenziatore = t.s === 'evidenziatore';
   return getStroke(punti, {
     size: evidenziatore ? t.w * 4 : t.w,
-    thinning: evidenziatore ? 0 : 0.45,
+    thinning: evidenziatore ? 0 : 0.25,
     smoothing: 0.6,
-    streamline: 0.45,
+    streamline: 0.35,
     simulatePressure: false,
     last: true,
     start: { cap: !evidenziatore },

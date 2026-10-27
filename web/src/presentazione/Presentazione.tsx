@@ -1,7 +1,7 @@
 import * as pdfjs from 'pdfjs-dist';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as EventoPuntatore } from 'react';
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as EventoPuntatore } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { api, get, patch, type Documento } from '../api';
 import { avvisa } from '../dialoghi';
@@ -30,6 +30,8 @@ function preferenze(): { strumento: Strumento; colore: string; spessore: number 
   }
   return { strumento: 'penna', colore: '#e53935', spessore: 3 };
 }
+
+const NESSUN_SEGNO: Tratto[] = [];
 
 /** Dopo che la punta si alza, per quanto un tocco è ancora considerato il palmo. */
 const PALMO_MS = 700;
@@ -611,6 +613,33 @@ export default function Presentazione({ specchio = false }: { specchio?: boolean
     trascina.current = { id: e.pointerId, x0: e.clientX, y0: e.clientY, t0: Date.now(), vista, mosso: false };
   };
 
+  const fotogramma = useRef(0);
+
+  /**
+   * Su iPad «touch-action: none» non basta: Safari a metà tratto può ancora
+   * decidere che la punta sta scorrendo la pagina o selezionando, e annulla il
+   * tratto (pointercancel). Il segno si fermava o non partiva. Bloccare gli
+   * eventi touch nativi sulla superficie glielo impedisce; gli eventi pointer,
+   * che sono quelli che usiamo, continuano ad arrivare.
+   */
+  const superficie = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = superficie.current;
+    if (!el || specchio) return;
+    const blocca = (e: Event) => {
+      if (e.cancelable) e.preventDefault();
+    };
+    const opzioni = { passive: false } as const;
+    for (const tipo of ['touchstart', 'touchmove', 'touchend', 'selectstart', 'gesturestart', 'gesturechange', 'dblclick']) {
+      el.addEventListener(tipo, blocca, opzioni);
+    }
+    return () => {
+      for (const tipo of ['touchstart', 'touchmove', 'touchend', 'selectstart', 'gesturestart', 'gesturechange', 'dblclick']) {
+        el.removeEventListener(tipo, blocca);
+      }
+    };
+  }, [specchio, pdf]);
+
   const muovi = (e: EventoPuntatore<HTMLDivElement>) => {
     if (e.pointerType === 'pen' && e.buttons !== 0) ultimaPenna.current = Date.now();
     if (e.pointerType === 'touch' && tocchi.current.has(e.pointerId)) {
@@ -659,7 +688,13 @@ export default function Presentazione({ specchio = false }: { specchio?: boolean
     const libero = tr.s === 'penna' || tr.s === 'evidenziatore';
     tr.p = libero ? [...tr.p, ...nuovi] : [tr.p[0]!, nuovi[nuovi.length - 1]!];
     trasmetti({ tipo: 'tratto-punti', id: tr.id, punti: libero ? nuovi : tr.p, sostituisci: !libero });
-    setInCorso({ ...tr });
+    // Un disegno per fotogramma, non uno per evento: la Pencil ne manda fino a 240 al secondo.
+    if (!fotogramma.current) {
+      fotogramma.current = requestAnimationFrame(() => {
+        fotogramma.current = 0;
+        if (tratto.current) setInCorso({ ...tratto.current });
+      });
+    }
   };
 
   const su = (e: EventoPuntatore<HTMLDivElement>) => {
@@ -738,36 +773,8 @@ export default function Presentazione({ specchio = false }: { specchio?: boolean
 
   // --- Disegno ---------------------------------------------------------------
 
-  const segni = annotazioni[chiave] ?? [];
+  const segni = annotazioni[chiave] ?? NESSUN_SEGNO;
   const s = storia.current[chiave];
-
-  const disegnaTratto = (t: Tratto, finito = true) => {
-    const f = forma(t, altezzaVB, finito);
-    const evid = t.s === 'evidenziatore';
-    const largo = t.w;
-    switch (f.tipo) {
-      case 'path':
-        return <path key={t.id} d={f.d} fill={t.c} opacity={evid ? 0.35 : 1} style={evid ? { mixBlendMode: 'multiply' } : undefined} />;
-      case 'linea': {
-        const ang = Math.atan2(f.y2 - f.y1, f.x2 - f.x1);
-        const l = Math.max(10, largo * 5);
-        return (
-          <g key={t.id} stroke={t.c} strokeWidth={largo} strokeLinecap="round" strokeLinejoin="round" fill="none">
-            <line x1={f.x1} y1={f.y1} x2={f.x2} y2={f.y2} />
-            {f.freccia && (
-              <polyline
-                points={`${f.x2 - l * Math.cos(ang - 0.45)},${f.y2 - l * Math.sin(ang - 0.45)} ${f.x2},${f.y2} ${f.x2 - l * Math.cos(ang + 0.45)},${f.y2 - l * Math.sin(ang + 0.45)}`}
-              />
-            )}
-          </g>
-        );
-      }
-      case 'rett':
-        return <rect key={t.id} x={f.x} y={f.y} width={f.w} height={f.h} stroke={t.c} strokeWidth={largo} fill="none" strokeLinejoin="round" />;
-      case 'ellisse':
-        return <ellipse key={t.id} cx={f.cx} cy={f.cy} rx={f.rx} ry={f.ry} stroke={t.c} strokeWidth={largo} fill="none" />;
-    }
-  };
 
   if (errore) {
     return (
@@ -800,6 +807,7 @@ export default function Presentazione({ specchio = false }: { specchio?: boolean
     >
       {/* La superficie che riceve penna, mouse e dita. */}
       <div
+        ref={superficie}
         style={{ position: 'absolute', inset: 0, cursor: specchio ? 'default' : strumento === 'laser' ? 'none' : 'crosshair' }}
         onPointerDown={specchio ? undefined : giu}
         onPointerMove={specchio ? undefined : muovi}
@@ -832,9 +840,9 @@ export default function Presentazione({ specchio = false }: { specchio?: boolean
                 preserveAspectRatio="none"
                 style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none', overflow: 'visible' }}
               >
-                {(mostraSegni || lavagna) && segni.map((t) => disegnaTratto(t))}
-                {inCorso && disegnaTratto(inCorso, false)}
-                {inCorsoRemoto && disegnaTratto(inCorsoRemoto, false)}
+                {(mostraSegni || lavagna) && <SegniSalvati segni={segni} altezza={altezzaVB} />}
+                {inCorso && <TrattoSvg t={inCorso} altezza={altezzaVB} finito={false} />}
+                {inCorsoRemoto && <TrattoSvg t={inCorsoRemoto} altezza={altezzaVB} finito={false} />}
                 {laser.length > 0 && (
                   <g>
                     <polyline
@@ -1064,8 +1072,8 @@ export default function Presentazione({ specchio = false }: { specchio?: boolean
 
       {suggerimento && !comandi && (
         <div
-          onClick={() => setSuggerimento(false)}
           style={{
+            pointerEvents: 'none',
             position: 'absolute',
             left: '50%',
             bottom: 'max(24px, env(safe-area-inset-bottom))',
@@ -1222,6 +1230,52 @@ function ComandiSpecchio({
     </>
   );
 }
+
+
+/**
+ * Un segno nell'SVG della pagina. È memorizzato: il contorno del tratto a mano
+ * libera costa, e prima si ricalcolavano tutti i segni della pagina a ogni
+ * movimento della punta (fino a 240 al secondo con la Pencil). Con una pagina
+ * già annotata il tratto nuovo restava indietro e sembrava non prendere.
+ */
+const TrattoSvg = memo(function TrattoSvg({ t, altezza, finito = true }: { t: Tratto; altezza: number; finito?: boolean }) {
+  const f = forma(t, altezza, finito);
+  const evid = t.s === 'evidenziatore';
+  const largo = t.w;
+  switch (f.tipo) {
+    case 'path':
+      return <path d={f.d} fill={t.c} opacity={evid ? 0.35 : 1} style={evid ? { mixBlendMode: 'multiply' } : undefined} />;
+    case 'linea': {
+      const ang = Math.atan2(f.y2 - f.y1, f.x2 - f.x1);
+      const l = Math.max(10, largo * 5);
+      return (
+        <g stroke={t.c} strokeWidth={largo} strokeLinecap="round" strokeLinejoin="round" fill="none">
+          <line x1={f.x1} y1={f.y1} x2={f.x2} y2={f.y2} />
+          {f.freccia && (
+            <polyline
+              points={`${f.x2 - l * Math.cos(ang - 0.45)},${f.y2 - l * Math.sin(ang - 0.45)} ${f.x2},${f.y2} ${f.x2 - l * Math.cos(ang + 0.45)},${f.y2 - l * Math.sin(ang + 0.45)}`}
+            />
+          )}
+        </g>
+      );
+    }
+    case 'rett':
+      return <rect x={f.x} y={f.y} width={f.w} height={f.h} stroke={t.c} strokeWidth={largo} fill="none" strokeLinejoin="round" />;
+    case 'ellisse':
+      return <ellipse cx={f.cx} cy={f.cy} rx={f.rx} ry={f.ry} stroke={t.c} strokeWidth={largo} fill="none" />;
+  }
+});
+
+/** I segni già salvati: si ridisegnano solo quando l'elenco cambia, non a ogni movimento della punta. */
+const SegniSalvati = memo(function SegniSalvati({ segni, altezza }: { segni: Tratto[]; altezza: number }) {
+  return (
+    <>
+      {segni.map((t) => (
+        <TrattoSvg key={t.id} t={t} altezza={altezza} />
+      ))}
+    </>
+  );
+});
 
 function BottoneComando({
   onClick,

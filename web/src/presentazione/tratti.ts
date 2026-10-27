@@ -67,9 +67,12 @@ export function contorno(t: Pick<Tratto, 'p' | 'w' | 's'>, altezza: number, fini
   return percorsoDaContorno(
     getStroke(punti, {
       size: evidenziatore ? t.w * 4 : t.w,
-      thinning: evidenziatore || !pressione ? 0 : 0.45,
+      // Assottigliamento lieve: con una pressione leggera il tratto restava
+      // sottilissimo, quasi invisibile, e sembrava non essere stato preso.
+      thinning: evidenziatore || !pressione ? 0 : 0.25,
       smoothing: 0.6,
-      streamline: 0.45,
+      // Meno inseguimento: il tratto sta più vicino alla punta mentre si scrive.
+      streamline: 0.35,
       simulatePressure: false,
       last: finito,
       start: { cap: !evidenziatore },

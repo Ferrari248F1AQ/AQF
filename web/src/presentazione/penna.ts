@@ -14,8 +14,16 @@ import { useCallback, useEffect, useRef, useState } from 'react';
  * stessa) e se ne va quando la punta si sposta verso il foglio o lo tocca.
  * Lo stesso vale per il mouse su un portatile: avvicinarsi al bordo la apre.
  */
-const FASCIA_PX = 90;
+const FASCIA_PX = 70;
 const MARGINE_USCITA_PX = 60;
+/**
+ * La punta deve restare sulla fascia un attimo prima che la barra si apra, e
+ * mai subito dopo aver toccato il vetro. Prima la barra si apriva fra una
+ * lettera e l'altra scrivendo vicino al bordo sinistro, e la punta finiva sui
+ * pulsanti invece che sul foglio: il tratto «non veniva preso».
+ */
+const SOSTA_MS = 280;
+const DOPO_SCRITTURA_MS = 1200;
 /** Dieci secondi senza penna e un dito che tocca: la penna è stata posata. */
 const DITO_DOPO_MS = 10_000;
 const POSATA_DOPO_MS = 120_000;
@@ -34,6 +42,7 @@ export function usePennaVicina(zona: React.RefObject<HTMLElement | null>): {
     setVicina(v);
   }, []);
   const ultimaPenna = useRef(0);
+  const ultimoContatto = useRef(0);
 
   useEffect(() => {
     const posata = (): void => {
@@ -43,23 +52,46 @@ export function usePennaVicina(zona: React.RefObject<HTMLElement | null>): {
     const controllo = setInterval(() => {
       if (ultimaPenna.current && Date.now() - ultimaPenna.current > POSATA_DOPO_MS) posata();
     }, 5000);
+    let sosta: ReturnType<typeof setTimeout> | undefined;
+    let nellaFascia = false;
     const suMovimento = (e: PointerEvent): void => {
       if (e.pointerType === 'touch') return;
-      if (e.buttons !== 0) return;
+      if (e.buttons !== 0) {
+        if (e.pointerType === 'pen') ultimoContatto.current = Date.now();
+        return;
+      }
       if (e.pointerType === 'pen') {
         ultimaPenna.current = Date.now();
         setCapace(true);
       }
       const sopraLaBarra = zona.current?.contains(e.target as Node) ?? false;
       const larghezza = zona.current?.getBoundingClientRect().width ?? FASCIA_PX;
-      if (sopraLaBarra || e.clientX < FASCIA_PX) {
-        if (!aperta.current) imposta(true);
-      } else if (aperta.current && e.clientX > larghezza + MARGINE_USCITA_PX) {
-        imposta(false);
+      if (sopraLaBarra) {
+        nellaFascia = true;
+        return;
       }
+      if (e.clientX < FASCIA_PX) {
+        if (aperta.current || nellaFascia) return;
+        nellaFascia = true;
+        clearTimeout(sosta);
+        sosta = setTimeout(() => {
+          if (nellaFascia && !aperta.current && Date.now() - ultimoContatto.current > DOPO_SCRITTURA_MS) imposta(true);
+        }, SOSTA_MS);
+        return;
+      }
+      nellaFascia = false;
+      clearTimeout(sosta);
+      if (aperta.current && e.clientX > larghezza + MARGINE_USCITA_PX) imposta(false);
     };
     const suTocco = (e: PointerEvent): void => {
-      if (e.pointerType === 'pen') ultimaPenna.current = Date.now();
+      if (e.pointerType === 'pen') {
+        ultimaPenna.current = Date.now();
+        if (!zona.current?.contains(e.target as Node)) {
+          ultimoContatto.current = Date.now();
+          clearTimeout(sosta);
+          nellaFascia = false;
+        }
+      }
       else if (e.pointerType === 'touch' && ultimaPenna.current && Date.now() - ultimaPenna.current > DITO_DOPO_MS) {
         posata();
         return;
@@ -74,6 +106,7 @@ export function usePennaVicina(zona: React.RefObject<HTMLElement | null>): {
       document.removeEventListener('pointermove', suMovimento, true);
       document.removeEventListener('pointerdown', suTocco, true);
       clearInterval(controllo);
+      clearTimeout(sosta);
     };
   }, [zona, imposta]);
 
