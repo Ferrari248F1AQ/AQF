@@ -46,6 +46,11 @@ const PENNA_IN_MANO_MS = 3000;
 const CONTATTO_PALMO_PX = 38;
 /** Di quanto devono allargarsi (o stringersi) due dita prima di ingrandire. */
 const SOGLIA_PIZZICO = 0.1;
+/** Con la Pencil in mano il pizzico deve essere più deciso: la mano appoggiata non allarga le dita. */
+const SOGLIA_PIZZICO_PENNA = 0.18;
+/** Tenere la punta ferma sul vetro così a lungo apre la barra degli strumenti. */
+const PRESSIONE_LUNGA_MS = 550;
+const PRESSIONE_LUNGA_PX = 6;
 /** Sotto questo ingrandimento, a dita alzate si torna a pagina intera. */
 const SCATTO_SCALA = 1.25;
 /** Il foglio della lavagna: A orizzontale (√2 : 1). */
@@ -543,7 +548,7 @@ export default function Presentazione({ specchio = false }: { specchio?: boolean
   const attivo = useRef<number | null>(null);
   const tratto = useRef<Tratto | null>(null);
   const tocchi = useRef(new Map<number, { x: number; y: number }>());
-  const pizzico = useRef<{ distanza: number; centro: { x: number; y: number }; vista: Vista; avviato?: boolean } | null>(null);
+  const pizzico = useRef<{ distanza: number; centro: { x: number; y: number }; vista: Vista; avviato?: boolean; prudente?: boolean } | null>(null);
   const trascina = useRef<{ id: number; x0: number; y0: number; t0: number; vista: Vista; mosso: boolean; prudente?: boolean } | null>(null);
   /** Ultimo sorvolo della Pencil sulla superficie (punta vicina, senza contatto). */
   const ultimoSorvolo = useRef(0);
@@ -571,6 +576,26 @@ export default function Presentazione({ specchio = false }: { specchio?: boolean
     e.preventDefault();
     attivo.current = e.pointerId;
     pennaInTratto.current = e.pointerType === 'pen';
+    clearTimeout(pressione.current?.timer);
+    pressione.current = null;
+    if (e.pointerType === 'pen') {
+      const id = e.pointerId;
+      pressione.current = {
+        x: e.clientX,
+        y: e.clientY,
+        timer: setTimeout(() => {
+          if (attivo.current !== id) return;
+          // La punta è rimasta ferma: non è un segno, è la richiesta degli strumenti.
+          if (tratto.current) trasmetti({ tipo: 'tratto-fine', id: tratto.current.id });
+          tratto.current = null;
+          attivo.current = null;
+          pennaInTratto.current = false;
+          setInCorso(null);
+          pressione.current = null;
+          penna.mostra();
+        }, PRESSIONE_LUNGA_MS),
+      };
+    }
     try {
       e.currentTarget.setPointerCapture(e.pointerId);
     } catch {
@@ -593,7 +618,8 @@ export default function Presentazione({ specchio = false }: { specchio?: boolean
       ultimaPenna.current = Date.now();
       // Il palmo è arrivato un attimo prima della punta e ha spostato il foglio: si rimette dov'era.
       const g = gestoDita.current;
-      if (g && Date.now() - g.t < 1000 && g.vista !== vista) setVista(g.vista);
+      // Solo se quelle dita sono ancora appoggiate: un pizzico voluto, finito, resta.
+      if (g && tocchi.current.size > 0 && Date.now() - g.t < 1500 && g.vista !== vista) setVista(g.vista);
       gestoDita.current = null;
       pizzico.current = null;
       trascina.current = null;
@@ -609,8 +635,6 @@ export default function Presentazione({ specchio = false }: { specchio?: boolean
     // Un contatto largo è il palmo, sempre.
     if (Math.max(e.width || 0, e.height || 0) > CONTATTO_PALMO_PX) return;
     const inMano = Date.now() - Math.max(ultimaPenna.current, ultimoSorvolo.current) < PENNA_IN_MANO_MS;
-    // Con la Pencil in mano un secondo contatto è la mano, non un pizzico.
-    if (inMano && tocchi.current.size >= 1) return;
     tocchi.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
     if (!gestoDita.current || Date.now() - gestoDita.current.t > 1000) gestoDita.current = { t: Date.now(), vista };
     if (tocchi.current.size === 2) {
@@ -624,6 +648,7 @@ export default function Presentazione({ specchio = false }: { specchio?: boolean
       trascina.current = null;
       const [a, b] = [...tocchi.current.values()];
       pizzico.current = {
+        prudente: inMano,
         distanza: Math.hypot(a!.x - b!.x, a!.y - b!.y),
         centro: { x: (a!.x + b!.x) / 2, y: (a!.y + b!.y) / 2 },
         vista,
@@ -637,6 +662,7 @@ export default function Presentazione({ specchio = false }: { specchio?: boolean
   };
 
   const fotogramma = useRef(0);
+  const pressione = useRef<{ x: number; y: number; timer: ReturnType<typeof setTimeout> } | null>(null);
 
   /**
    * Su iPad «touch-action: none» non basta: Safari a metà tratto può ancora
@@ -676,7 +702,7 @@ export default function Presentazione({ specchio = false }: { specchio?: boolean
         const d = Math.hypot(a!.x - b!.x, a!.y - b!.y);
         const c = { x: (a!.x + b!.x) / 2, y: (a!.y + b!.y) / 2 };
         // Due dita appoggiate senza allargarle (il pollice, il palmo) non ingrandiscono.
-        if (!z.avviato && Math.abs(d / z.distanza - 1) < SOGLIA_PIZZICO) return;
+        if (!z.avviato && Math.abs(d / z.distanza - 1) < (z.prudente ? SOGLIA_PIZZICO_PENNA : SOGLIA_PIZZICO)) return;
         z.avviato = true;
         const scala = Math.min(6, Math.max(1, (z.vista.scala * d) / z.distanza));
         const k = scala / z.vista.scala;
@@ -701,6 +727,11 @@ export default function Presentazione({ specchio = false }: { specchio?: boolean
     }
     if (attivo.current !== e.pointerId) return;
     e.preventDefault();
+    const lp = pressione.current;
+    if (lp && Math.hypot(e.clientX - lp.x, e.clientY - lp.y) > PRESSIONE_LUNGA_PX) {
+      clearTimeout(lp.timer);
+      pressione.current = null;
+    }
     const nativi = typeof e.nativeEvent.getCoalescedEvents === 'function' ? e.nativeEvent.getCoalescedEvents() : [];
     const nuovi = (nativi.length > 0 ? nativi : [e]).map((n) => coordinate(n as PointerEvent));
     if (strumento === 'gomma') return nuovi.forEach(cancellaVicino);
@@ -765,6 +796,8 @@ export default function Presentazione({ specchio = false }: { specchio?: boolean
       }
       if (attivo.current !== e.pointerId) return;
     }
+    clearTimeout(pressione.current?.timer);
+    pressione.current = null;
     if (attivo.current !== e.pointerId) return;
     attivo.current = null;
     pennaInTratto.current = false;
@@ -957,36 +990,8 @@ export default function Presentazione({ specchio = false }: { specchio?: boolean
       </div>
 
       {/* La linguetta apre la barra a chi non ha una Pencil che sorvola. */}
-      {!barraVisibile && (
-        <button
-          type="button"
-          data-linguetta
-          aria-label="Mostra gli strumenti"
-          title="Strumenti di disegno"
-          onClick={() => {
-            penna.mostra();
-            setComandi(false);
-          }}
-          style={{
-            position: 'absolute',
-            left: 0,
-            top: '50%',
-            transform: 'translateY(-50%)',
-            zIndex: 7,
-            width: 34,
-            height: 120,
-            border: 'none',
-            borderRadius: '0 14px 14px 0',
-            background: 'rgba(28,28,26,.6)',
-            color: '#fff',
-            fontSize: 20,
-            cursor: 'pointer',
-            padding: 0,
-          }}
-        >
-          ✎
-        </button>
-      )}
+      {/* La barra si apre col sorvolo della Pencil sul bordo sinistro (iPad che lo supportano)
+          o tenendo la punta ferma sul vetro per mezzo secondo, su qualunque iPad. */}
 
       {/* L'uscita sempre a portata: due tocchi, perché un palmo appoggiato nell'angolo non chiuda la lezione. */}
       {!comandi && <UscitaRapida onEsci={() => void esci()} />}
@@ -1127,7 +1132,7 @@ export default function Presentazione({ specchio = false }: { specchio?: boolean
         >
           <strong>Per uscire:</strong> tocca due volte la <strong>✕</strong> in alto a sinistra (o premi Esc).
           <br />
-          <strong>Strumenti di disegno:</strong> tocca la linguetta <strong>✎</strong> sul bordo sinistro.
+          <strong>Strumenti di disegno:</strong> tieni la punta della Pencil ferma sul vetro per mezzo secondo.
         </div>
       )}
       {vista.scala > 1.01 && (

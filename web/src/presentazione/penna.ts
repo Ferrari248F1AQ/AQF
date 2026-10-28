@@ -37,8 +37,11 @@ export function usePennaVicina(zona: React.RefObject<HTMLElement | null>): {
   const [capace, setCapace] = useState(false);
   const [vicina, setVicina] = useState(false);
   const aperta = useRef(false);
-  const imposta = useCallback((v: boolean) => {
+  /** Aperta a mano (pressione lunga): la chiude un tocco sul foglio, non la punta che si allontana. */
+  const manuale = useRef(false);
+  const imposta = useCallback((v: boolean, aMano = false) => {
     aperta.current = v;
+    manuale.current = v && aMano;
     setVicina(v);
   }, []);
   const ultimaPenna = useRef(0);
@@ -81,7 +84,7 @@ export function usePennaVicina(zona: React.RefObject<HTMLElement | null>): {
       }
       nellaFascia = false;
       clearTimeout(sosta);
-      if (aperta.current && e.clientX > larghezza + MARGINE_USCITA_PX) imposta(false);
+      if (aperta.current && !manuale.current && e.clientX > larghezza + MARGINE_USCITA_PX) imposta(false);
     };
     const suTocco = (e: PointerEvent): void => {
       if (e.pointerType === 'pen') {
@@ -113,7 +116,7 @@ export function usePennaVicina(zona: React.RefObject<HTMLElement | null>): {
   return {
     capace,
     vicina,
-    mostra: useCallback(() => imposta(true), [imposta]),
+    mostra: useCallback(() => imposta(true, true), [imposta]),
     nascondi: useCallback(() => imposta(false), [imposta]),
   };
 }
