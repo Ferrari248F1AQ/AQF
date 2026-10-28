@@ -111,6 +111,8 @@ export function Impostazioni() {
         )}
       </section>
 
+      <Diagnostica />
+
       <Account />
 
       {utente!.ruolo === 'admin' && <ArchivioDati />}
@@ -122,6 +124,40 @@ export function Impostazioni() {
         Versione {__VERSIONE__}
       </p>
     </div>
+  );
+}
+
+/** Per capire, sull'iPad vero, che cosa arriva dalle dita e perché un gesto non va. */
+function Diagnostica() {
+  const [attiva, setAttiva] = useState(() => {
+    try {
+      return localStorage.getItem('aqf.diagnostica') === '1';
+    } catch {
+      return false;
+    }
+  });
+  return (
+    <section className="scheda sezione">
+      <h2>🔧 Diagnostica</h2>
+      <label className="interruttore">
+        <input
+          type="checkbox"
+          checked={attiva}
+          onChange={(e) => {
+            setAttiva(e.target.checked);
+            try {
+              localStorage.setItem('aqf.diagnostica', e.target.checked ? '1' : '0');
+            } catch {
+              /* niente */
+            }
+          }}
+        />
+        <span>
+          <strong>Mostra i tocchi durante la presentazione (solo su questo dispositivo)</strong>
+          <div className="nota">Un riquadro in alto a destra dice quali dita sono state accettate o ignorate e perché.</div>
+        </span>
+      </label>
+    </section>
   );
 }
 

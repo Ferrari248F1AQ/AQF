@@ -42,8 +42,21 @@ const PALMO_MS = 700;
  * Resta solo lo scorrimento deciso per cambiare pagina.
  */
 const PENNA_IN_MANO_MS = 3000;
-/** Un contatto più largo di così è un palmo, non un dito (iPad riporta la misura del contatto). */
-const CONTATTO_PALMO_PX = 38;
+/**
+ * Un contatto più largo di così è un palmo, non un dito. Vale solo con la Pencil in
+ * mano: l'iPad riporta per un dito normale anche 40–60 px, e una soglia bassa (era 38)
+ * scartava le dita del pizzico come se fossero il palmo.
+ */
+const CONTATTO_PALMO_PX = 110;
+
+/** Diagnostica dei tocchi, accesa dalle Impostazioni su questo dispositivo. */
+function diagnosticaAttiva(): boolean {
+  try {
+    return localStorage.getItem('aqf.diagnostica') === '1';
+  } catch {
+    return false;
+  }
+}
 /** Di quanto devono allargarsi (o stringersi) due dita prima di ingrandire. */
 const SOGLIA_PIZZICO = 0.1;
 /** Con la Pencil in mano il pizzico deve essere più deciso: la mano appoggiata non allarga le dita. */
@@ -630,12 +643,16 @@ export default function Presentazione({ specchio = false }: { specchio?: boolean
       if (e.button !== 0) return;
       return iniziaDisegno(e);
     }
+    const misura = `${Math.round(e.width || 0)}×${Math.round(e.height || 0)}`;
     // Dito. Mentre la penna scrive, o l'ha appena alzata, è il palmo: non conta.
-    if (pennaInTratto.current || Date.now() - ultimaPenna.current < PALMO_MS) return;
-    // Un contatto largo è il palmo, sempre.
-    if (Math.max(e.width || 0, e.height || 0) > CONTATTO_PALMO_PX) return;
+    if (pennaInTratto.current || Date.now() - ultimaPenna.current < PALMO_MS) {
+      return diag(`dito ${misura} ignorato: penna appena usata`);
+    }
     const inMano = Date.now() - Math.max(ultimaPenna.current, ultimoSorvolo.current) < PENNA_IN_MANO_MS;
+    // Con la Pencil in mano, un contatto molto largo è il palmo.
+    if (inMano && Math.max(e.width || 0, e.height || 0) > CONTATTO_PALMO_PX) return diag(`dito ${misura} ignorato: palmo`);
     tocchi.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    diag(`dito ${misura} accettato (${tocchi.current.size} sul vetro${inMano ? ', Pencil in mano' : ''})`);
     if (!gestoDita.current || Date.now() - gestoDita.current.t > 1000) gestoDita.current = { t: Date.now(), vista };
     if (tocchi.current.size === 2) {
       // Il secondo dito trasforma tutto in un pizzico: il tratto del primo si annulla.
@@ -662,6 +679,11 @@ export default function Presentazione({ specchio = false }: { specchio?: boolean
   };
 
   const fotogramma = useRef(0);
+  const [diagnostica] = useState(diagnosticaAttiva);
+  const [righeDiag, setRigheDiag] = useState<string[]>([]);
+  const diag = (m: string) => {
+    if (diagnostica) setRigheDiag((r) => [...r.slice(-5), `${new Date().toLocaleTimeString('it-IT')} ${m}`]);
+  };
   const pressione = useRef<{ x: number; y: number; timer: ReturnType<typeof setTimeout> } | null>(null);
 
   /**
@@ -703,6 +725,7 @@ export default function Presentazione({ specchio = false }: { specchio?: boolean
         const c = { x: (a!.x + b!.x) / 2, y: (a!.y + b!.y) / 2 };
         // Due dita appoggiate senza allargarle (il pollice, il palmo) non ingrandiscono.
         if (!z.avviato && Math.abs(d / z.distanza - 1) < (z.prudente ? SOGLIA_PIZZICO_PENNA : SOGLIA_PIZZICO)) return;
+        if (!z.avviato) diag('pizzico avviato');
         z.avviato = true;
         const scala = Math.min(6, Math.max(1, (z.vista.scala * d) / z.distanza));
         const k = scala / z.vista.scala;
@@ -1133,6 +1156,28 @@ export default function Presentazione({ specchio = false }: { specchio?: boolean
           <strong>Per uscire:</strong> tocca due volte la <strong>✕</strong> in alto a sinistra (o premi Esc).
           <br />
           <strong>Strumenti di disegno:</strong> tieni la punta della Pencil ferma sul vetro per mezzo secondo.
+        </div>
+      )}
+      {diagnostica && (
+        <div
+          style={{
+            position: 'absolute',
+            right: 8,
+            top: 56,
+            zIndex: 9,
+            pointerEvents: 'none',
+            background: 'rgba(0,0,0,.75)',
+            color: '#9f9',
+            font: '12px/1.4 ui-monospace, monospace',
+            padding: '6px 8px',
+            borderRadius: 8,
+            maxWidth: 420,
+          }}
+        >
+          <div>diagnostica · scala {vista.scala.toFixed(2)}</div>
+          {righeDiag.map((r, i) => (
+            <div key={i}>{r}</div>
+          ))}
         </div>
       )}
       {vista.scala > 1.01 && (
