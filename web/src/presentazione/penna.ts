@@ -14,7 +14,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
  * stessa) e se ne va quando la punta si sposta verso il foglio o lo tocca.
  * Lo stesso vale per il mouse su un portatile: avvicinarsi al bordo la apre.
  */
-const FASCIA_PX = 70;
+const FASCIA_PX = 80;
 const MARGINE_USCITA_PX = 60;
 /**
  * La punta deve restare sulla fascia un attimo prima che la barra si apra, e
@@ -22,8 +22,8 @@ const MARGINE_USCITA_PX = 60;
  * lettera e l'altra scrivendo vicino al bordo sinistro, e la punta finiva sui
  * pulsanti invece che sul foglio: il tratto «non veniva preso».
  */
-const SOSTA_MS = 280;
-const DOPO_SCRITTURA_MS = 1200;
+const SOSTA_MS = 120;
+const DOPO_SCRITTURA_MS = 700;
 /** Dieci secondi senza penna e un dito che tocca: la penna è stata posata. */
 const DITO_DOPO_MS = 10_000;
 const POSATA_DOPO_MS = 120_000;

@@ -35,6 +35,15 @@ const NESSUN_SEGNO: Tratto[] = [];
 
 /** Dopo che la punta si alza, per quanto un tocco è ancora considerato il palmo. */
 const PALMO_MS = 700;
+/**
+ * Per quanto, dopo l'ultimo contatto o sorvolo della Pencil, si considera che
+ * la si tenga in mano. In quel tempo le dita non ingrandiscono, non spostano e
+ * non sfogliano con un tocco: è quasi sempre la mano che scrive appoggiata.
+ * Resta solo lo scorrimento deciso per cambiare pagina.
+ */
+const PENNA_IN_MANO_MS = 3000;
+/** Un contatto più largo di così è un palmo, non un dito (iPad riporta la misura del contatto). */
+const CONTATTO_PALMO_PX = 38;
 /** Di quanto devono allargarsi (o stringersi) due dita prima di ingrandire. */
 const SOGLIA_PIZZICO = 0.1;
 /** Sotto questo ingrandimento, a dita alzate si torna a pagina intera. */
@@ -535,7 +544,11 @@ export default function Presentazione({ specchio = false }: { specchio?: boolean
   const tratto = useRef<Tratto | null>(null);
   const tocchi = useRef(new Map<number, { x: number; y: number }>());
   const pizzico = useRef<{ distanza: number; centro: { x: number; y: number }; vista: Vista; avviato?: boolean } | null>(null);
-  const trascina = useRef<{ id: number; x0: number; y0: number; t0: number; vista: Vista; mosso: boolean } | null>(null);
+  const trascina = useRef<{ id: number; x0: number; y0: number; t0: number; vista: Vista; mosso: boolean; prudente?: boolean } | null>(null);
+  /** Ultimo sorvolo della Pencil sulla superficie (punta vicina, senza contatto). */
+  const ultimoSorvolo = useRef(0);
+  /** Com'era la vista quando le dita hanno iniziato l'ultimo gesto. */
+  const gestoDita = useRef<{ t: number; vista: Vista } | null>(null);
   const ultimoTap = useRef(0);
 
   const coordinate = (e: { clientX: number; clientY: number; pressure?: number; pointerType?: string }): Punto => {
@@ -578,6 +591,10 @@ export default function Presentazione({ specchio = false }: { specchio?: boolean
   const giu = (e: EventoPuntatore<HTMLDivElement>) => {
     if (e.pointerType === 'pen') {
       ultimaPenna.current = Date.now();
+      // Il palmo è arrivato un attimo prima della punta e ha spostato il foglio: si rimette dov'era.
+      const g = gestoDita.current;
+      if (g && Date.now() - g.t < 1000 && g.vista !== vista) setVista(g.vista);
+      gestoDita.current = null;
       pizzico.current = null;
       trascina.current = null;
       tocchi.current.clear();
@@ -589,7 +606,13 @@ export default function Presentazione({ specchio = false }: { specchio?: boolean
     }
     // Dito. Mentre la penna scrive, o l'ha appena alzata, è il palmo: non conta.
     if (pennaInTratto.current || Date.now() - ultimaPenna.current < PALMO_MS) return;
+    // Un contatto largo è il palmo, sempre.
+    if (Math.max(e.width || 0, e.height || 0) > CONTATTO_PALMO_PX) return;
+    const inMano = Date.now() - Math.max(ultimaPenna.current, ultimoSorvolo.current) < PENNA_IN_MANO_MS;
+    // Con la Pencil in mano un secondo contatto è la mano, non un pizzico.
+    if (inMano && tocchi.current.size >= 1) return;
     tocchi.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (!gestoDita.current || Date.now() - gestoDita.current.t > 1000) gestoDita.current = { t: Date.now(), vista };
     if (tocchi.current.size === 2) {
       // Il secondo dito trasforma tutto in un pizzico: il tratto del primo si annulla.
       if (attivo.current !== null) {
@@ -610,7 +633,7 @@ export default function Presentazione({ specchio = false }: { specchio?: boolean
     if (tocchi.current.size > 2) return;
     const pennaPosata = Date.now() - ultimaPenna.current > 10_000;
     if (imp.ditoDisegna && pennaPosata) return iniziaDisegno(e);
-    trascina.current = { id: e.pointerId, x0: e.clientX, y0: e.clientY, t0: Date.now(), vista, mosso: false };
+    trascina.current = { id: e.pointerId, x0: e.clientX, y0: e.clientY, t0: Date.now(), vista, mosso: false, prudente: inMano };
   };
 
   const fotogramma = useRef(0);
@@ -641,7 +664,10 @@ export default function Presentazione({ specchio = false }: { specchio?: boolean
   }, [specchio, pdf]);
 
   const muovi = (e: EventoPuntatore<HTMLDivElement>) => {
-    if (e.pointerType === 'pen' && e.buttons !== 0) ultimaPenna.current = Date.now();
+    if (e.pointerType === 'pen') {
+      if (e.buttons !== 0) ultimaPenna.current = Date.now();
+      else ultimoSorvolo.current = Date.now();
+    }
     if (e.pointerType === 'touch' && tocchi.current.has(e.pointerId)) {
       tocchi.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
       const z = pizzico.current;
@@ -669,7 +695,7 @@ export default function Presentazione({ specchio = false }: { specchio?: boolean
         const dx = e.clientX - t.x0;
         const dy = e.clientY - t.y0;
         if (Math.hypot(dx, dy) > 10) t.mosso = true;
-        if (t.vista.scala > 1) setVista({ ...t.vista, x: t.vista.x + dx, y: t.vista.y + dy });
+        if (t.vista.scala > 1 && !t.prudente) setVista({ ...t.vista, x: t.vista.x + dx, y: t.vista.y + dy });
         return;
       }
     }
@@ -713,6 +739,11 @@ export default function Presentazione({ specchio = false }: { specchio?: boolean
         const dx = e.clientX - t.x0;
         const dy = e.clientY - t.y0;
         const dt = Date.now() - t.t0;
+        if (t.prudente) {
+          // Pencil in mano: solo uno scorrimento deciso sfoglia; tocchi e appoggi non fanno nulla.
+          if (Math.abs(dx) > 90 && Math.abs(dx) > Math.abs(dy) * 2 && dt < 700) naviga(dx < 0 ? 1 : -1);
+          return;
+        }
         if (t.vista.scala <= 1.01 && Math.abs(dx) > 45 && Math.abs(dx) > Math.abs(dy) * 1.2 && dt < 1000) {
           naviga(dx < 0 ? 1 : -1);
           return;
@@ -926,11 +957,12 @@ export default function Presentazione({ specchio = false }: { specchio?: boolean
       </div>
 
       {/* La linguetta apre la barra a chi non ha una Pencil che sorvola. */}
-      {comandi && !barraVisibile && (
+      {!barraVisibile && (
         <button
           type="button"
           data-linguetta
           aria-label="Mostra gli strumenti"
+          title="Strumenti di disegno"
           onClick={() => {
             penna.mostra();
             setComandi(false);
@@ -941,19 +973,23 @@ export default function Presentazione({ specchio = false }: { specchio?: boolean
             top: '50%',
             transform: 'translateY(-50%)',
             zIndex: 7,
-            width: 26,
-            height: 96,
+            width: 34,
+            height: 120,
             border: 'none',
-            borderRadius: '0 12px 12px 0',
-            background: 'rgba(28,28,26,.85)',
+            borderRadius: '0 14px 14px 0',
+            background: 'rgba(28,28,26,.6)',
             color: '#fff',
-            fontSize: 18,
+            fontSize: 20,
             cursor: 'pointer',
+            padding: 0,
           }}
         >
-          ›
+          ✎
         </button>
       )}
+
+      {/* L'uscita sempre a portata: due tocchi, perché un palmo appoggiato nell'angolo non chiuda la lezione. */}
+      {!comandi && <UscitaRapida onEsci={() => void esci()} />}
 
       {/* Comandi: compaiono toccando il centro con un dito, spariscono da soli. */}
       <div
@@ -1089,9 +1125,9 @@ export default function Presentazione({ specchio = false }: { specchio?: boolean
             boxShadow: '0 8px 30px rgba(0,0,0,.4)',
           }}
         >
-          <strong>Per uscire:</strong> tocca il centro dello schermo con un dito, poi <strong>✕</strong> in alto a sinistra.
+          <strong>Per uscire:</strong> tocca due volte la <strong>✕</strong> in alto a sinistra (o premi Esc).
           <br />
-          Oppure avvicina la Pencil al bordo sinistro → <strong>✕ ESCI</strong> in cima alla barra · da tastiera <strong>Esc</strong>.
+          <strong>Strumenti di disegno:</strong> tocca la linguetta <strong>✎</strong> sul bordo sinistro.
         </div>
       )}
       {vista.scala > 1.01 && (
@@ -1276,6 +1312,42 @@ const SegniSalvati = memo(function SegniSalvati({ segni, altezza }: { segni: Tra
     </>
   );
 });
+
+function UscitaRapida({ onEsci }: { onEsci: () => void }) {
+  const [chiede, setChiede] = useState(false);
+  useEffect(() => {
+    if (!chiede) return;
+    const t = setTimeout(() => setChiede(false), 3000);
+    return () => clearTimeout(t);
+  }, [chiede]);
+  return (
+    <button
+      type="button"
+      data-resta-aperta
+      onClick={() => (chiede ? onEsci() : setChiede(true))}
+      aria-label={chiede ? 'Tocca di nuovo per uscire' : 'Esci dalla presentazione'}
+      title="Esci dalla presentazione"
+      style={{
+        position: 'absolute',
+        top: 'max(8px, env(safe-area-inset-top))',
+        left: 'max(8px, env(safe-area-inset-left))',
+        zIndex: 8,
+        height: 40,
+        minWidth: 40,
+        padding: chiede ? '0 14px' : 0,
+        borderRadius: 999,
+        border: 'none',
+        background: chiede ? '#e53935' : 'rgba(28,28,26,.45)',
+        color: '#fff',
+        font: '700 15px var(--font)',
+        cursor: 'pointer',
+        transition: 'background .15s ease',
+      }}
+    >
+      {chiede ? '✕ Tocca ancora per uscire' : '✕'}
+    </button>
+  );
+}
 
 function BottoneComando({
   onClick,

@@ -118,6 +118,9 @@ export function Impostazioni() {
       <button type="button" className="pulsante pericolo" onClick={() => void esci()}>
         Esci dall'account
       </button>
+      <p className="nota" style={{ marginTop: 16 }}>
+        Versione {__VERSIONE__}
+      </p>
     </div>
   );
 }
